@@ -373,6 +373,7 @@ void mpump_init(void)
   
 	FD110A_Port = xSerialPortInit( serCOM2, ser4800, serNO_PARITY, serBITS_8, serSTOP_1, 256 );
 	mpump_ctl(POWER_OFF | MPUMP_STOP);
+	DIO_Write( PWR_3, pdLOW );		//关闭TD400分子泵，X1-PIN8	
 }
 
 int32_t mpump_ctl( uint16_t cmd )
@@ -391,6 +392,7 @@ int32_t mpump_ctl( uint16_t cmd )
 			return -1;
 		
 		eMBRegInput_Write(MB_MPUMP_ST,MPUMP_PWR_OFF);
+		DIO_Write( PWR_3, pdLOW );		//关闭TD400分子泵，X1-PIN8
 	} else if ( cmd & MPUMP_PWR_ON ) {
 		//如果机械泵还没有上电，则不可以开启分子泵
 		if ( !(eMBRegInput_Read(MB_POWERPUMP_ST) & POWER_ON) ) {
@@ -436,6 +438,7 @@ int32_t mpump_ctl( uint16_t cmd )
 		
 		mpump_ctl_from_com(FD110A_START);
 		eMBRegInput_Write(MB_MPUMP_ST, (reg | MPUMP_RUN));
+		DIO_Write( PWR_3, pdHIGH );//开启TD400分子泵，X1-PIN8
 	} 
 
 	return 0;

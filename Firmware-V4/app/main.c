@@ -308,7 +308,7 @@ int main( void )
 	/* Create the uIP task.  The WEB server runs in this task. */
 //	xTaskCreate( vuIP_Task, ( signed char * ) "uIP", mainBASIC_WEB_STACK_SIZE, ( void * ) NULL, mainUIP_TASK_PRIORITY, NULL );
 //	xTaskCreate( vMBTCPSlaveTask, ( signed char * ) "FMB-TCP", configMINIMAL_STACK_SIZE*3, ( void * ) NULL, mainMB_TASK_PRIORITY, NULL );
-//	xTaskCreate( vMBRTUSlaveTask, ( signed char * ) "FMB-RTU", configMINIMAL_STACK_SIZE*2, ( void * ) NULL, mainMB_TASK_PRIORITY, NULL );
+	xTaskCreate( vMBRTUSlaveTask, ( signed char * ) "FMB-RTU", configMINIMAL_STACK_SIZE*2, ( void * ) NULL, mainMB_TASK_PRIORITY, NULL );
 	
 //	xTaskCreate( vMassFlow_Task, ( signed portCHAR * ) "GL696H", mainBASIC_GL696H_STACK_SIZE, NULL, mainGL696H_TASK_PRIORITY, NULL );
 	xTaskCreate( vGL696H_Task, ( signed portCHAR * ) "GL696H", mainBASIC_GL696H_STACK_SIZE, NULL, mainGL696H_TASK_PRIORITY, NULL );
