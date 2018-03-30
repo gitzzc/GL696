@@ -42,6 +42,8 @@
 #define HVR_CUR_DAC_CH	3
 #define HVR_POWER_CH	PWR_1
 
+#define GAUGE_VOL_ADC_CH	ADC_Channel_10
+
 #define VOL_DAC_FULL	5000
 #define CUR_DAC_FULL	5000
 
@@ -164,6 +166,24 @@ void vmeter_init(void)
 	vmeter_Port = xSerialPortInit( serCOM3, ser1200, serNO_PARITY, serBITS_8, serSTOP_1, 256 );
 }
 
+float vmeter_get_adc(void)
+{
+	uint16_t adc[32];
+	uint32_t vol;
+	float vmeter;
+
+	ADC_Get(GAUGE_VOL_ADC_CH,adc,32);
+	exchange_sort16(adc,32);
+	vol = get_average16(adc+8,32-2*8);
+	
+	vmeter = pow(10,1.667*vol-11.33);
+	
+	if 		( 5.0e-9 < vmeter 	) vmeter = 5.0e-9;
+	else if ( vmeter > 1000 	) vmeter = 1000;
+	
+	return vmeter;	
+}
+
 //-----------------------------------------------------------------------------------
 //读取真空计数据，转换成32bit浮点数，存储在MODBUS寄存器中，
 //其中，usRegInputBuf[MB_VMETER0]为bit31-16,usRegInputBuf[MB_VMETER1]为bit15-0
@@ -173,7 +193,8 @@ int32_t vmeter_task()
 	static int32_t rx_len=0;
 	float vmeter;
 	int32_t i;
-  	
+	
+#if 0
 	if ( eMBRegInput_Read(MB_VMETER_ST) & VMETER_PWR_OFF )
 		return 0;
 	
@@ -212,7 +233,12 @@ int32_t vmeter_task()
 			vmeter_set_reg(vmeter);
 			break;
 		}
-	}	
+	}
+#else 
+	vmeter = vmeter_get_adc();
+	vmeter_set_reg(vmeter);
+#endif
+	
 	return 0;
 }
 
@@ -391,6 +417,7 @@ int32_t mpump_ctl( uint16_t cmd )
 			return -1;
 		
 		eMBRegInput_Write(MB_MPUMP_ST,MPUMP_PWR_OFF);
+		DIO_Write(PWR_3,pdLOW);	//Control MPump on X1-pin8;
 	} else if ( cmd & MPUMP_PWR_ON ) {
 		//如果机械泵还没有上电，则不可以开启分子泵
 		if ( !(eMBRegInput_Read(MB_POWERPUMP_ST) & POWER_ON) ) {
@@ -400,6 +427,7 @@ int32_t mpump_ctl( uint16_t cmd )
 			
 		//DIO_Write( MPUMP_RELAY_CH, DO_RELAY_ON );
 		eMBRegInput_Write(MB_MPUMP_ST,MPUMP_PWR_ON);
+		DIO_Write(PWR_3,pdHIGH);	//Control MPump on X1-pin8;
 	}
 	
 	if ( (eMBRegInput_Read(MB_MPUMP_ST) & MPUMP_PWR_ON) != MPUMP_PWR_ON )
