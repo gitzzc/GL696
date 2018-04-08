@@ -176,6 +176,8 @@ float vmeter_get_adc(void)
 	exchange_sort16(adc,32);
 	vol = get_average16(adc+8,32-2*8);
 	
+	vol = vol*2500*4/4095;
+	
 	vmeter = pow(10,1.667*vol-11.33);
 	
 	if 		( 5.0e-9 < vmeter 	) vmeter = 5.0e-9;
