@@ -176,9 +176,9 @@ float vmeter_get_adc(void)
 	exchange_sort16(adc,32);
 	vol = get_average16(adc+8,32-2*8);
 	
-	vol = vol*2500*4/4095;
+	vol = vol*2500*4/4095*1137/1000;
 	
-	vmeter = pow(10,1.667*vol/1000-11.33);
+	vmeter = pow(10,1.667*vol/1000-9.333);
 	
 	if 		( 5.0e-9 > vmeter 	) vmeter = 5.0e-9;
 	else if ( vmeter > 1000 	) vmeter = 1000;
@@ -293,10 +293,14 @@ void bleed_value_init(void)
 int32_t baffle_ctl(int32_t cmd)
 {
 	if ( cmd & POWER_ON ) {
-		DIO_Write(RELAY_BAFFLE,DO_RELAY_ON);	
+//	DIO_Write(RELAY_BAFFLE,DO_RELAY_ON);	
+		DIO_Write(RELAY2,DO_RELAY_ON);
+		DIO_Write(RELAY3,DO_RELAY_OFF);
 		eMBRegInput_Write(MB_BAFFLE_ST,POWER_ON);
 	}	else if ( cmd & POWER_OFF ) {
-		DIO_Write(RELAY_BAFFLE,DO_RELAY_OFF);	
+//	DIO_Write(RELAY_BAFFLE,DO_RELAY_OFF);	
+		DIO_Write(RELAY2,DO_RELAY_OFF);
+		DIO_Write(RELAY3,DO_RELAY_ON);
 		eMBRegInput_Write(MB_BAFFLE_ST,POWER_OFF);
 	}
 	return 0;
@@ -315,10 +319,10 @@ int32_t sample_led_ctl( int32_t cmd )
 {
 	if ( cmd & SLED_PWR_ON ) {
 		eMBRegInput_Write(MB_SAMPLE_LED_ST,SLED_PWR_ON);
-		DIO_Write(RELAY_SAMPLE_LED,DO_RELAY_ON);	
+//		DIO_Write(RELAY_SAMPLE_LED,DO_RELAY_ON);	
 	}	else if ( cmd & SLED_PWR_OFF ) {
 		eMBRegInput_Write(MB_SAMPLE_LED_ST,SLED_PWR_OFF);
-		DIO_Write(RELAY_SAMPLE_LED,DO_RELAY_OFF);	
+//		DIO_Write(RELAY_SAMPLE_LED,DO_RELAY_OFF);	
 	}
 	if ( cmd & SLED1_PWR_ON ) {
 		eMBRegInput_Write(MB_SAMPLE_LED_ST,SLED1_PWR_ON);
@@ -947,13 +951,17 @@ int32_t hv_cur_task(HVS* hvs)
 			PWM_DAC_SetmV( hvs->cur_dac_ch, (hvs->cur_ctl=0) );
 			//hvs_update_to_modbus(hvs);
 			return 0;
-		} if ( (hvs->vol_set - hvs->vol_fb > 500) && (hvs->cur_fb > 100) ) {	//放电
-			if ( hvs->cur_ctl > hvs->cur_step*50 ){
-				hvs->cur_ctl -= hvs->cur_step*50;
-			} else 
-				hvs->cur_ctl = 0;
-			PWM_DAC_SetmV( hvs->cur_dac_ch, hvs->cur_ctl );
-			return 0;
+		} 
+		if ( (hvs->vol_set - hvs->vol_fb > 500) && (hvs->cur_fb > 100) ) {	//放电
+			// if ( hvs->cur_ctl > hvs->cur_step*50 ){
+				// hvs->cur_ctl -= hvs->cur_step*50;
+			// } else 
+				// hvs->cur_ctl = 0;
+			// PWM_DAC_SetmV( hvs->cur_dac_ch, hvs->cur_ctl );
+			// return 0;
+		}
+		if ( hvs->cur_ctl == 0 && hvs->cur_set ){
+			hvs->cur_ctl = 1100;
 		}
 					
 		if ( (temp = abs ( hvs->cur_set - hvs->cur_fb )) < (hvs->cur_set * hvs->cur_err_rate / 1000) ) {
@@ -963,19 +971,22 @@ int32_t hv_cur_task(HVS* hvs)
 
 			err = temp*100 / hvs->cur_set;//%
 			if ( hvs->cur_fb < 150 ) {
-				step 		= hvs->cur_step*50;
+				step 	 = hvs->cur_step*50;
 				interval = hvs->cur_step_interval/2;		
 			} else {
 				interval = hvs->cur_step_interval*1;		
 				if ( temp > 1000 )
-					step 	 = hvs->cur_step * 20;
-				else if ( temp > 500 )		
 					step 	 = hvs->cur_step * 10;
+				else if ( temp > 500 )		
+					step 	 = hvs->cur_step * 5;
 				else if ( temp > 100 )		
 					step 	 = hvs->cur_step * 2;
 				else	
 					step 	 = hvs->cur_step * 1;
 			}
+			if ( (hvs->cur_ctl > 1000 || hvs->cur_fb > 150) && step > 5 )
+				step = 5;
+			
 			//if ( hvs->cur_fb > hvs->cur_set || (hvs->st & HV_SET_OK) == 0) {
 			if ( hvs->cur_fb > hvs->cur_set ) {
 				if ( hvs->cur_ctl > step ){
@@ -1040,52 +1051,40 @@ void vGL696H_Task( void *pvParameters )
 
 	gl_696h_init(); 
 	xLastWakeTime = xTaskGetTickCount ();
+	//开电机
 	motor = MOTOR_FORWARD;
+	DIO_Write(RELAY0,DO_RELAY_ON);
+	DIO_Write(RELAY1,DO_RELAY_OFF);
+	//开真空规电源
+	DIO_Write(PWR_2,DO_POWER_ON);	
 	
 	while(1){
 		system_tick += 10;
 		
-	//	led_task();
+		//led_task();
 	  
 		//---------------------------------------------------------------------------------
-	    hv_vol_task(&hvsl);
-	    hv_cur_task(&hvsl);
-	    
-	    hv_vol_task(&hvsr);
-	    hv_cur_task(&hvsr);
+		hv_vol_task(&hvsl);
+		hv_cur_task(&hvsl);
+		
+		hv_vol_task(&hvsr);
+		hv_cur_task(&hvsr);
 
-	    vmeter_task();
+		vmeter_task();
 		update_adc_modbus();
 
-	    //---------------------------------------------------------------------------------
-	    if ( (ret = get_timeout(&sec_to)) == TO_TIMEOUT) {
+		//---------------------------------------------------------------------------------
+		if ( (ret = get_timeout(&sec_to)) == TO_TIMEOUT) {
 			start_timeout(&sec_to,1000);
 			sec ++;
-	 
-			//usart_printf(DBGU, " adc : ");
-	    	/*for(j=0;j<8;j++){
-		    	ADC_Get(8+j,buf,32);
-		    	//usart_printf(DBGU, " %4dmV ,",adc_get_mv(buf[0]));
-		    }
-		    //usart_printf(DBGU, "\r\n");
-	   		
-			i = 1000;
-			PWM_DAC_SetmV(0,i);i += 100;
-			PWM_DAC_SetmV(1,i);i += 100;
-			PWM_DAC_SetmV(2,i);i += 100;
-			PWM_DAC_SetmV(3,i);i += 100;   
-			PWM_DAC_SetmV(4,i);i += 100;
-			PWM_DAC_SetmV(5,i);i += 100;
-			PWM_DAC_SetmV(6,i);i += 100;
-			PWM_DAC_SetmV(7,i);i += 100;   
-	  	    */
-	      	//----------自动控制---------------------------------------------------------------
-	    	auto_ctl_task();
-	      
-	      	mpump_task();
-	      	if ( (sec % 2) == 0 ) {
+		 
+			//----------自动控制---------------------------------------------------------------
+			auto_ctl_task();
+				
+			mpump_task();
+			if ( (sec % 2) == 0 ) {
 				mpump_ctl_from_com(FD110A_STATUS);
-	    	} 
+			} 
 			
 			if ( (sec % 60 ) == 0 ){
 				i = eMBRegInput_Read(MB_MOTOR_ST);
@@ -1093,11 +1092,11 @@ void vGL696H_Task( void *pvParameters )
 				/*if ( (i & MOTOR_ENABLE) )*/ {
 					if ( i & MOTOR_FORWARD ){
 						motor = MOTOR_BACKWARD;
-						DIO_Write(RELAY0,DO_RELAY_ON);
+						DIO_Write(RELAY0,DO_RELAY_OFF);
 						DIO_Write(RELAY1,DO_RELAY_ON);
 					} else {
 						motor = MOTOR_FORWARD;
-						DIO_Write(RELAY0,DO_RELAY_OFF);
+						DIO_Write(RELAY0,DO_RELAY_ON);
 						DIO_Write(RELAY1,DO_RELAY_OFF);
 					}
 				}

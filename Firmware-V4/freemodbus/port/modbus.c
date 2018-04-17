@@ -483,7 +483,7 @@ eMBRegHoldingCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs, eMBRegi
 							//usart_printf(DBGU,"debug>sms_phone:%s\r\n",sms_phone);	
 							//usart_printf(DBGU,"debug>sms_text:%s\r\n",sms_text);	
 							//gsmSendMessage(&sm_param,sms_text);
-							//gsmSendMessage(&sm_param,"AL-900系统信息\r\n您所制备的样品已经完成，系统将进入自动停机程序�?);
+							//gsmSendMessage(&sm_param,"AL-900系统信息\r\n您所制备的样品已经完成，系统将进入自动停机程序�?);
 						}
 						break;
 					case MB_DAC0:

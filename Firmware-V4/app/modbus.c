@@ -552,7 +552,13 @@ char preset_multiple_regs(void)
 				reg40000[reg_addr] = reg_value;
 				break;
 			case MB_BAFFLE:
-				baffle_ctl( reg_value );
+				if ( reg_value == POWER_ON ) {
+					if ( eMBRegInput_Read(MB_BAFFLE_ST) & POWER_OFF ) {
+						baffle_ctl( reg_value );
+					}
+				} else {
+					baffle_ctl( reg_value );
+				}
 				reg40000[reg_addr] = reg_value;
 				break;
 			case MB_BLEED_VALVE:
