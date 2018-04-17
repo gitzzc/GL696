@@ -83,7 +83,7 @@ uint32_t auto_st_end  = 0xff;
 
 //---------------------------------------------------------------------
 #define CUR_ADC_FILTER_SIZE 	24
-#define VOL_ADC_FILTER_SIZE 	6
+#define VOL_ADC_FILTER_SIZE 	24
 #define SAMPLE_ADC_FILTER_SIZE 	12
 
 uint16_t cur_buf_l[CUR_ADC_FILTER_SIZE];
@@ -621,7 +621,7 @@ void hv_init(void)
 	init_queue(&cur_queue_r,cur_buf_r,CUR_ADC_FILTER_SIZE);	
 
 	hvsl.vol_max 			= 15000;
-	hvsl.vol_scale 			= 5;
+	hvsl.vol_scale 			= 5;	//=3?
 	hvsl.vol_err_rate		= 5;
 	hvsl.vol_step 			= 10;
 	hvsl.vol_step_interval	= 200;
@@ -788,32 +788,19 @@ void hv_update_vol(HVS* hvs)
 	uint32_t temp;
 	uint32_t i,sum,valid;
 	
-	if ( hvs->id == HVL ){
-	} else if ( hvs->id == HVR ){
-	} else 
+	if ( hvs->id != HVL && hvs->id != HVR )
 		return ;
-
-	if ( (hvs->st & HV_PWR) == 0 ){
-		hvs->vol_fb = 0;
-		return ;
-	}
 	
 	//update voltage	
 	ADC_Get(hvs->vol_adc_ch,adc,32);	
 	exchange_sort16(adc,32);
 	temp = get_average16(adc+8,32-2*8);
-//	enqueue(hvs->vol_queue,temp);
-//	exchange_sort16(hvs->vol_queue->queue,hvs->vol_queue->size);//sort the adc data
-//	for(i=1,sum=0,valid=0;i<hvs->vol_queue->size-1*2;i++){
-//  	//temp = (uint32_t)hvs->vol_queue->queue[i]*10 / hvs->vol_queue->queue[hvs->vol_queue->size/2];
-//  	//	if ( temp > 5 && temp < 15 )
-//		{
-//			sum += hvs->vol_queue->queue[i];
-//			valid++;
-//		}
-//	}
-//	temp = sum/valid;
 	
+	enqueue(hvs->vol_queue,temp);
+	memcpy(adc,hvs->vol_queue->queue,hvs->vol_queue->size);
+	exchange_sort16(adc,hvs->vol_queue->size);
+	temp = get_average16(adc+4,hvs->vol_queue->size-2*4);
+
 	hvs->vol_fb = temp*2500*2/4095 * hvs->vol_scale;
 	if ( hvs->vol_fb < 500)
 		hvs->vol_fb = 0;
@@ -825,30 +812,17 @@ void hv_update_cur(HVS* hvs)
 	uint32_t temp;
 	uint32_t i,sum,valid;
 
-	if ( hvs->id == HVR ){
-	} else if ( hvs->id == HVL ){
-	} else 
+	if ( hvs->id != HVR && hvs->id != HVL )
 		return ;
-	
-	if ( (hvs->st & HV_PWR) == 0 ){
-		hvs->cur_fb = 0;
-		return ;
-	}
-	
+		
 	ADC_Get(hvs->cur_adc_ch,adc,32);		
 	exchange_sort16(adc,32);
 	temp = get_average16(adc+0,32-2*0);
+	
 	enqueue(hvs->cur_queue,temp);
-	exchange_sort16(hvs->cur_queue->queue,hvs->cur_queue->size);//sort the adc data
-	for(i=1,sum=0,valid=0;i<hvs->cur_queue->size-1*2;i++){
-  		//temp = (uint32_t)hvs->cur_queue->queue[i]*10 / hvs->cur_queue->queue[hvs->cur_queue->size/2];
-  		//if ( temp > 5 && temp < 20 )
-		{
-			sum += hvs->cur_queue->queue[i];
-			valid++;
-		}
-	}
-	temp = sum/valid;
+	memcpy(adc,hvs->cur_queue->queue,hvs->cur_queue->size);
+	exchange_sort16(adc,hvs->cur_queue->size);
+	temp = get_average16(adc+0,32-2*0);
 	
 	hvs->cur_fb = temp*2500*2/4095 * hvs->cur_scale;
 	if ( hvs->cur_fb < 150 )
@@ -863,17 +837,17 @@ void hv_vol_update(HVS* hvs)
 
 int32_t hv_vol_task(HVS* hvs)
 {
-	int32_t to_status;
+	int32_t  to_status;
 	uint16_t temp;
 	uint16_t step;
 	
 	if ( (hvs->st & HV_ENABLE) == 0)
 		return 0;
 
-	hv_update_vol(hvs);		//更新电压电流状态寄存器
 	if ( (to_status = get_timeout(hvs->vol_check_to)) == TO_TIMEOUT ) {//定时完成
 		start_timeout(hvs->vol_check_to, hvs->vol_step_interval);
 		//--------------------------------------------------------------------------
+		hv_update_vol(hvs);		//更新电压电流状态寄存器
 		hvs_update_from_modbus(hvs);
 		//--------------------------------------------------------------------------
 		
@@ -896,9 +870,8 @@ int32_t hv_vol_task(HVS* hvs)
 				//start_timeout(hvs->vol_check_to, hvs->vol_step_interval*10);
 			//} else 
 			{
-			step = hvs->vol_step;	
-							
-				if ( labs( hvs->vol_fb - hvs->vol_set) > 1000 )
+				step = hvs->vol_step;	
+				if 		( labs( hvs->vol_fb - hvs->vol_set) > 1000 )
 					step *= 50;
 				else if ( labs( hvs->vol_fb - hvs->vol_set) > 100 )
 					step *= 5;		
@@ -910,9 +883,9 @@ int32_t hv_vol_task(HVS* hvs)
 				else 
 					hvs->vol_ctl = 0;
 			}	else {
-				if ( (hvs->vol_set - hvs->vol_fb > 500) && (hvs->cur_fb > 100) )	//放电
-				{	//hvs->cur_ctl = hvs->cur_ctl*9/10;
-				}	else 
+				//if ( (hvs->vol_set - hvs->vol_fb > 500) && (hvs->cur_fb > 100) )	//放电
+				//{	//hvs->cur_ctl = hvs->cur_ctl*9/10;
+				//}	else 
 					hvs->vol_ctl += step;
 			}
 			
@@ -920,7 +893,7 @@ int32_t hv_vol_task(HVS* hvs)
 				hvs->vol_ctl = hvs->vol_set+3000;
 			if ( hvs->vol_ctl > 3000 && hvs->vol_fb < 1000 )	//电源不受控保护
 				hvs->vol_ctl = 3000;
-				PWM_DAC_SetmV( hvs->vol_dac_ch, hvs->vol_ctl / hvs->vol_scale );
+			PWM_DAC_SetmV( hvs->vol_dac_ch, hvs->vol_ctl / hvs->vol_scale );
 		}	//if ( abs(
 		hvs_update_to_modbus(hvs);
 	} else if ( to_status != TO_RUNING ) {	//冗余处理
@@ -932,26 +905,27 @@ int32_t hv_vol_task(HVS* hvs)
 
 int32_t hv_cur_task(HVS* hvs)
 {
-	uint16_t step,interval;
+	uint16_t step;
 	uint32_t temp;
 	int32_t to_status;
-	uint32_t err;
 
 	if ( (hvs->st & HV_ENABLE) == 0)
 		return 0;
 		
-	hv_update_cur(hvs);
   	if ( (to_status = get_timeout(hvs->cur_check_to)) == TO_TIMEOUT ){
 		start_timeout(hvs->cur_check_to, hvs->cur_step_interval);
 
+		hv_update_cur(hvs);
 		step = hvs->cur_step;
-		interval = hvs->cur_step_interval;		
 
 		if ( hvs->cur_set == 0 ) {
 			PWM_DAC_SetmV( hvs->cur_dac_ch, (hvs->cur_ctl=0) );
-			//hvs_update_to_modbus(hvs);
+			hvs_update_to_modbus(hvs);
 			return 0;
-		} 
+		} else if ( hvs->cur_ctl == 0 ){	//第一次开始调节
+			hvs->cur_ctl = 1100;			//初始值
+		}
+		
 		if ( (hvs->vol_set - hvs->vol_fb > 500) && (hvs->cur_fb > 100) ) {	//放电
 			// if ( hvs->cur_ctl > hvs->cur_step*50 ){
 				// hvs->cur_ctl -= hvs->cur_step*50;
@@ -960,32 +934,24 @@ int32_t hv_cur_task(HVS* hvs)
 			// PWM_DAC_SetmV( hvs->cur_dac_ch, hvs->cur_ctl );
 			// return 0;
 		}
-		if ( hvs->cur_ctl == 0 && hvs->cur_set ){
-			hvs->cur_ctl = 1100;
-		}
 					
 		if ( (temp = abs ( hvs->cur_set - hvs->cur_fb )) < (hvs->cur_set * hvs->cur_err_rate / 1000) ) {
 			hvs->st |= HV_CUR_SET_OK;
 		} else {
 			hvs->st &= ~HV_CUR_SET_OK;
 
-			err = temp*100 / hvs->cur_set;//%
 			if ( hvs->cur_fb < 150 ) {
-				step 	 = hvs->cur_step*50;
-				interval = hvs->cur_step_interval/2;		
+				step 	 = hvs->cur_step*20;
 			} else {
-				interval = hvs->cur_step_interval*1;		
 				if ( temp > 1000 )
-					step 	 = hvs->cur_step * 10;
-				else if ( temp > 500 )		
 					step 	 = hvs->cur_step * 5;
+				else if ( temp > 500 )		
+					step 	 = hvs->cur_step * 3;
 				else if ( temp > 100 )		
 					step 	 = hvs->cur_step * 2;
 				else	
 					step 	 = hvs->cur_step * 1;
 			}
-			if ( (hvs->cur_ctl > 1000 || hvs->cur_fb > 150) && step > 5 )
-				step = 5;
 			
 			//if ( hvs->cur_fb > hvs->cur_set || (hvs->st & HV_SET_OK) == 0) {
 			if ( hvs->cur_fb > hvs->cur_set ) {
@@ -998,8 +964,8 @@ int32_t hv_cur_task(HVS* hvs)
 				if ( hvs->cur_ctl > CUR_DAC_FULL )
 					hvs->cur_ctl = CUR_DAC_FULL;
 			}
-			PWM_DAC_SetmV( hvs->cur_dac_ch, hvs->cur_ctl );
-		    start_timeout(hvs->cur_check_to, interval);
+			PWM_DAC_SetmV(hvs->cur_dac_ch, hvs->cur_ctl );
+		    start_timeout(hvs->cur_check_to, hvs->cur_step_interval);
 		}	//if ( abs ...
 		
 		hvs_update_to_modbus(hvs);
