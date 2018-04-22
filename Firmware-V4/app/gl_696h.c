@@ -83,7 +83,7 @@ uint32_t auto_st_end  = 0xff;
 
 //---------------------------------------------------------------------
 #define CUR_ADC_FILTER_SIZE 	24
-#define VOL_ADC_FILTER_SIZE 	24
+#define VOL_ADC_FILTER_SIZE 	16
 #define SAMPLE_ADC_FILTER_SIZE 	12
 
 uint16_t cur_buf_l[CUR_ADC_FILTER_SIZE];
@@ -621,7 +621,7 @@ void hv_init(void)
 	init_queue(&cur_queue_r,cur_buf_r,CUR_ADC_FILTER_SIZE);	
 
 	hvsl.vol_max 			= 15000;
-	hvsl.vol_scale 			= 5;	//=3?
+	hvsl.vol_scale 			= 3;	//=3?
 	hvsl.vol_err_rate		= 5;
 	hvsl.vol_step 			= 10;
 	hvsl.vol_step_interval	= 200;
@@ -630,7 +630,7 @@ void hv_init(void)
 
 	hvsl.cur_max 			= 3000;
 	hvsl.cur_err_rate		= 40;
-	hvsl.cur_scale 			= 1;
+	hvsl.cur_scale 			= 2;
 	hvsl.cur_step 			= 1;
 	hvsl.cur_step_interval	= 10000;
 	hvsl.cur_step_timeout	= 30000;
@@ -641,7 +641,7 @@ void hv_init(void)
 	hvsl.cur_set	= 0;
 
 	hvsr.vol_max 			= 15000;
-	hvsr.vol_scale 			= 5;
+	hvsr.vol_scale 			= 3;
 	hvsr.vol_err_rate		= 5;
 	hvsr.vol_step 			= 10;
 	hvsr.vol_step_interval	= 200;
@@ -650,7 +650,7 @@ void hv_init(void)
 	
 	hvsr.cur_max 			= 3000;
 	hvsr.cur_err_rate		= 40;
-	hvsr.cur_scale 			= 1;
+	hvsr.cur_scale 			= 2;
 	hvsr.cur_step 			= 1;
 	hvsr.cur_step_interval	= 10000;
 	hvsr.cur_step_timeout	= 30000;
@@ -748,6 +748,20 @@ void hvs_update_to_modbus(HVS* hvs)
 		case HVL:
 			eMBRegHolding_Write	(MB_VOL_SET_L,hvs->vol_set);
 			eMBRegHolding_Write (MB_CUR_SET_L,hvs->cur_set);
+			eMBRegHolding_Write (MB_VOL_MAX,			hvs->vol_max);
+			eMBRegHolding_Write (MB_VOL_SCALE,		hvs->vol_scale);
+			eMBRegHolding_Write (MB_VOL_ERR_RATE,	hvs->vol_err_rate);
+			eMBRegHolding_Write (MB_VOL_STEP,			hvs->vol_step);
+			eMBRegHolding_Write (MB_VOL_STEP_INTERVAL,	hvs->vol_step_interval);
+			eMBRegHolding_Write (MB_VOL_STEP_TIMEOUT,		hvs->vol_step_timeout);
+			eMBRegHolding_Write (MB_VOL_LEVEL1,		hvs->vol_level1);
+			eMBRegHolding_Write (MB_CURRRENT_MAX,	hvs->cur_max);
+			eMBRegHolding_Write (MB_CUR_ERR_RATE,	hvs->cur_err_rate);
+			eMBRegHolding_Write (MB_CUR_SCALE,		hvs->cur_scale);
+			eMBRegHolding_Write (MB_CUR_STEP,			hvs->cur_step);
+			eMBRegHolding_Write (MB_CUR_STEP_INTERVAL,	hvs->cur_step_interval);
+			eMBRegHolding_Write (MB_CUR_STEP_TIMEOUT,		hvs->cur_step_timeout);
+			eMBRegHolding_Write (MB_CUR_CTL_START,			hvs->cur_ctl_start);
 			
 			eMBRegInput_Write(MB_VOL_SET_L_ST	,hvs->vol_set);
 			eMBRegInput_Write(MB_CUR_SET_L_ST	,hvs->cur_set);
@@ -758,8 +772,22 @@ void hvs_update_to_modbus(HVS* hvs)
 			eMBRegInput_Write(MB_CUR_CTL_L	,hvs->cur_ctl);
 			break;
 		case HVR:
-			eMBRegHolding_Write(MB_VOL_SET_R,hvs->vol_set);
-			eMBRegHolding_Write(MB_CUR_SET_R,hvs->cur_set);
+			eMBRegHolding_Write	(MB_VOL_SET_R,		hvs->vol_set);
+			eMBRegHolding_Write	(MB_CUR_SET_R,		hvs->cur_set);
+			eMBRegHolding_Write (MB_VOL_MAX,			hvs->vol_max);
+			eMBRegHolding_Write (MB_VOL_SCALE,		hvs->vol_scale);
+			eMBRegHolding_Write (MB_VOL_ERR_RATE,	hvs->vol_err_rate);
+			eMBRegHolding_Write (MB_VOL_STEP,			hvs->vol_step);
+			eMBRegHolding_Write (MB_VOL_STEP_INTERVAL,	hvs->vol_step_interval);
+			eMBRegHolding_Write (MB_VOL_STEP_TIMEOUT,		hvs->vol_step_timeout);
+			eMBRegHolding_Write (MB_VOL_LEVEL1,		hvs->vol_level1);
+			eMBRegHolding_Write (MB_CURRRENT_MAX,	hvs->cur_max);
+			eMBRegHolding_Write (MB_CUR_ERR_RATE,	hvs->cur_err_rate);
+			eMBRegHolding_Write (MB_CUR_SCALE,		hvs->cur_scale);
+			eMBRegHolding_Write (MB_CUR_STEP,			hvs->cur_step);
+			eMBRegHolding_Write (MB_CUR_STEP_INTERVAL,	hvs->cur_step_interval);
+			eMBRegHolding_Write (MB_CUR_STEP_TIMEOUT,		hvs->cur_step_timeout);
+			eMBRegHolding_Write (MB_CUR_CTL_START,			hvs->cur_ctl_start);
 			
 			eMBRegInput_Write(MB_VOL_SET_R_ST	,hvs->vol_set);
 			eMBRegInput_Write(MB_CUR_SET_R_ST	,hvs->cur_set);
@@ -817,12 +845,12 @@ void hv_update_cur(HVS* hvs)
 		
 	ADC_Get(hvs->cur_adc_ch,adc,32);		
 	exchange_sort16(adc,32);
-	temp = get_average16(adc+0,32-2*0);
+	temp = get_average16(adc+4,32-2*4);
 	
 	enqueue(hvs->cur_queue,temp);
 	memcpy(adc,hvs->cur_queue->queue,hvs->cur_queue->size);
 	exchange_sort16(adc,hvs->cur_queue->size);
-	temp = get_average16(adc+0,32-2*0);
+	temp = get_average16(adc+0,hvs->cur_queue->size-2*0);
 	
 	hvs->cur_fb = temp*2500*2/4095 * hvs->cur_scale;
 	if ( hvs->cur_fb < 150 )
@@ -841,8 +869,8 @@ int32_t hv_vol_task(HVS* hvs)
 	uint16_t temp;
 	uint16_t step;
 	
-	if ( (hvs->st & HV_ENABLE) == 0)
-		return 0;
+//	if ( (hvs->st & HV_ENABLE) == 0)
+//		return 0;
 
 	if ( (to_status = get_timeout(hvs->vol_check_to)) == TO_TIMEOUT ) {//定时完成
 		start_timeout(hvs->vol_check_to, hvs->vol_step_interval);
@@ -861,7 +889,8 @@ int32_t hv_vol_task(HVS* hvs)
 		} else if ( abs(hvs->vol_set - hvs->vol_fb) < hvs->vol_set * hvs->vol_err_rate / 1000 ) {
 			hvs->st &= ~(HV_SET_TO | HV_INCTRL);	//清除故障状态标志
 			hvs->st |=  HV_SET_OK;
-		} else {//电压需要调整
+		} else if ( hvs->cur_fb < 200 ) {	//电流<0.02
+			//电压需要调整
 			//开启高压电源
 			DIO_Write(hvs->power_ch,DO_POWER_ON);
 			hvs->st |= HV_PWR;
@@ -872,9 +901,9 @@ int32_t hv_vol_task(HVS* hvs)
 			{
 				step = hvs->vol_step;	
 				if 		( labs( hvs->vol_fb - hvs->vol_set) > 1000 )
-					step *= 50;
+					step *= 10;
 				else if ( labs( hvs->vol_fb - hvs->vol_set) > 100 )
-					step *= 5;		
+					step *= 1;		
 			}
 			
 			if ( hvs->vol_fb > hvs->vol_set ) {
@@ -889,8 +918,8 @@ int32_t hv_vol_task(HVS* hvs)
 					hvs->vol_ctl += step;
 			}
 			
-			if ( hvs->vol_ctl - hvs->vol_set > 3000 )	//误差调整保护
-				hvs->vol_ctl = hvs->vol_set+3000;
+			if ( hvs->vol_ctl - hvs->vol_set > 1500 )	//误差调整保护
+				hvs->vol_ctl = hvs->vol_set+1500;
 			if ( hvs->vol_ctl > 3000 && hvs->vol_fb < 1000 )	//电源不受控保护
 				hvs->vol_ctl = 3000;
 			PWM_DAC_SetmV( hvs->vol_dac_ch, hvs->vol_ctl / hvs->vol_scale );
@@ -909,13 +938,13 @@ int32_t hv_cur_task(HVS* hvs)
 	uint32_t temp;
 	int32_t to_status;
 
-	if ( (hvs->st & HV_ENABLE) == 0)
-		return 0;
+//	if ( (hvs->st & HV_ENABLE) == 0)
+//		return 0;
 		
+		hv_update_cur(hvs);
   	if ( (to_status = get_timeout(hvs->cur_check_to)) == TO_TIMEOUT ){
 		start_timeout(hvs->cur_check_to, hvs->cur_step_interval);
 
-		hv_update_cur(hvs);
 		step = hvs->cur_step;
 
 		if ( hvs->cur_set == 0 ) {
@@ -923,7 +952,8 @@ int32_t hv_cur_task(HVS* hvs)
 			hvs_update_to_modbus(hvs);
 			return 0;
 		} else if ( hvs->cur_ctl == 0 ){	//第一次开始调节
-			hvs->cur_ctl = 1100;			//初始值
+			//hvs->cur_ctl = 2300;			//初始值
+			hvs->cur_ctl = hvs->vol_level1;			//初始值
 		}
 		
 		if ( (hvs->vol_set - hvs->vol_fb > 500) && (hvs->cur_fb > 100) ) {	//放电
@@ -941,14 +971,14 @@ int32_t hv_cur_task(HVS* hvs)
 			hvs->st &= ~HV_CUR_SET_OK;
 
 			if ( hvs->cur_fb < 150 ) {
-				step 	 = hvs->cur_step*20;
+				step 	 = hvs->cur_step*10;
 			} else {
 				if ( temp > 1000 )
-					step 	 = hvs->cur_step * 5;
-				else if ( temp > 500 )		
-					step 	 = hvs->cur_step * 3;
-				else if ( temp > 100 )		
 					step 	 = hvs->cur_step * 2;
+				else if ( temp > 500 )		
+					step 	 = hvs->cur_step * 1;
+				else if ( temp > 100 )		
+					step 	 = hvs->cur_step * 1;
 				else	
 					step 	 = hvs->cur_step * 1;
 			}
