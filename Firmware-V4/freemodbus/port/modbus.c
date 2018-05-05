@@ -312,9 +312,9 @@ eMBRegHoldingCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs, eMBRegi
 					case VMETER_STOP_DELAY:
 						
 					case MB_VOL_SET_L:
-						eMBRegInput_Write(MB_HV_ST_L,(eMBRegInput_Read(MB_HV_ST_L) & ~HV_SET_OK));break;
+						//eMBRegInput_Write(MB_HV_ST_L,(eMBRegInput_Read(MB_HV_ST_L) & ~HV_SET_OK));break;
 					case MB_VOL_SET_R:
-						eMBRegInput_Write(MB_HV_ST_R,(eMBRegInput_Read(MB_HV_ST_R) & ~HV_SET_OK));break;
+						//eMBRegInput_Write(MB_HV_ST_R,(eMBRegInput_Read(MB_HV_ST_R) & ~HV_SET_OK));break;
 						
 					case MB_MPUMP_PWR_OFF_FREQ:
 						break;

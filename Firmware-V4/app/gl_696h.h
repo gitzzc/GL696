@@ -41,13 +41,18 @@ typedef struct
 	unsigned short cur_step_timeout;	//电流步进输出超时,mS
 	unsigned short cur_ctl_start;		//电流控制起始值
   
+	unsigned short pre_vol_set;  		
 	unsigned short vol_set;			//电压设定值,V
 	unsigned short vol_fb;			//电压实际采样值,V
 	unsigned short vol_ctl;			//控制电压输出值,V
 
+	unsigned short pre_cur_set;  		
 	unsigned short cur_set;	//电流设定值,0.1mA
 	unsigned short cur_fb;	//当前电流采样值,0.1mA
 	unsigned short cur_ctl;	//
+
+	unsigned long  task;
+	unsigned long  pre_tick;
 	
 	QUEUE* vol_queue;
 	QUEUE* cur_queue;

@@ -1,6 +1,6 @@
 #include <stdlib.h>
 #include <math.h>
-//#include <string.h>
+#include <string.h>
 #include <stdint.h>
 
 #include "FreeRTOS.h"
@@ -552,8 +552,8 @@ int32_t auto_ctl_task(void)
 			if ( hvsl.vol_fb < 1000 && hvsr.vol_fb < 1000 || timer ++ > 5){
 				PWM_DAC_SetmV( HVL_CUR_DAC_CH, 0 );//关比例阀
 				PWM_DAC_SetmV( HVR_CUR_DAC_CH, 0 );//关比例阀
-				DIO_Write(hvsl.power_ch,DO_POWER_OFF);	
-				DIO_Write(hvsr.power_ch,DO_POWER_OFF);	
+				DIO_Write((ePIN_NAME)hvsl.power_ch,DO_POWER_OFF);	
+				DIO_Write((ePIN_NAME)hvsr.power_ch,DO_POWER_OFF);	
 				hv_enbale(&hvsl,DISABLE);
 				hv_enbale(&hvsr,DISABLE);
 				hvsl.vol_ctl = 0;
@@ -634,7 +634,7 @@ void hv_init(void)
 	hvsl.cur_step 			= 1;
 	hvsl.cur_step_interval	= 10000;
 	hvsl.cur_step_timeout	= 30000;
-	hvsl.cur_ctl_start		= 1300;
+	hvsl.cur_ctl_start		= 2300;
 	hvsl.vol_set	= 0;
 	hvsl.cur_set	= 0;
 	hvsl.vol_set	= 0;
@@ -654,7 +654,7 @@ void hv_init(void)
 	hvsr.cur_step 			= 1;
 	hvsr.cur_step_interval	= 10000;
 	hvsr.cur_step_timeout	= 30000;
-	hvsr.cur_ctl_start		= 1300;
+	hvsr.cur_ctl_start		= 2300;
 	hvsr.vol_set	= 0;
 	hvsr.cur_set	= 0;
 	hvsr.vol_set	= 0;
@@ -705,8 +705,8 @@ void hv_init(void)
 	hv_enbale(&hvsl,ENABLE);
 	hv_enbale(&hvsr,ENABLE);
 
-	DIO_Write(hvsl.power_ch,DO_POWER_OFF);
-	DIO_Write(hvsr.power_ch,DO_POWER_OFF);
+	DIO_Write((ePIN_NAME)hvsl.power_ch,DO_POWER_OFF);
+	DIO_Write((ePIN_NAME)hvsr.power_ch,DO_POWER_OFF);
 }
 
 void hvs_update_from_modbus(HVS* hvs)
@@ -730,12 +730,14 @@ void hvs_update_from_modbus(HVS* hvs)
 
 	switch( hvs->id )	{
 	case HVL:
-		hvs->vol_set	= eMBRegHolding_Read(MB_VOL_SET_L);
-		hvs->cur_set	= eMBRegHolding_Read(MB_CUR_SET_L);
+		hvs->vol_set		= eMBRegHolding_Read(MB_VOL_SET_L);
+		hvs->cur_set		= eMBRegHolding_Read(MB_CUR_SET_L);
+		//hvs->st				= eMBRegInput_Read(MB_HV_ST_L);
 		break;
 	case HVR:
-		hvs->vol_set	= eMBRegHolding_Read(MB_VOL_SET_R);
-		hvs->cur_set	= eMBRegHolding_Read(MB_CUR_SET_R);
+		hvs->vol_set		= eMBRegHolding_Read(MB_VOL_SET_R);
+		hvs->cur_set		= eMBRegHolding_Read(MB_CUR_SET_R);
+		//hvs->st				= eMBRegInput_Read(MB_HV_ST_R);
 		break;
 	default:
 		break;
@@ -772,22 +774,22 @@ void hvs_update_to_modbus(HVS* hvs)
 			eMBRegInput_Write(MB_CUR_CTL_L	,hvs->cur_ctl);
 			break;
 		case HVR:
-			eMBRegHolding_Write	(MB_VOL_SET_R,		hvs->vol_set);
-			eMBRegHolding_Write	(MB_CUR_SET_R,		hvs->cur_set);
+			eMBRegHolding_Write	(MB_VOL_SET_R,			hvs->vol_set);
+			eMBRegHolding_Write	(MB_CUR_SET_R,			hvs->cur_set);
 			eMBRegHolding_Write (MB_VOL_MAX,			hvs->vol_max);
-			eMBRegHolding_Write (MB_VOL_SCALE,		hvs->vol_scale);
-			eMBRegHolding_Write (MB_VOL_ERR_RATE,	hvs->vol_err_rate);
+			eMBRegHolding_Write (MB_VOL_SCALE,			hvs->vol_scale);
+			eMBRegHolding_Write (MB_VOL_ERR_RATE,		hvs->vol_err_rate);
 			eMBRegHolding_Write (MB_VOL_STEP,			hvs->vol_step);
 			eMBRegHolding_Write (MB_VOL_STEP_INTERVAL,	hvs->vol_step_interval);
-			eMBRegHolding_Write (MB_VOL_STEP_TIMEOUT,		hvs->vol_step_timeout);
-			eMBRegHolding_Write (MB_VOL_LEVEL1,		hvs->vol_level1);
-			eMBRegHolding_Write (MB_CURRRENT_MAX,	hvs->cur_max);
-			eMBRegHolding_Write (MB_CUR_ERR_RATE,	hvs->cur_err_rate);
-			eMBRegHolding_Write (MB_CUR_SCALE,		hvs->cur_scale);
+			eMBRegHolding_Write (MB_VOL_STEP_TIMEOUT,	hvs->vol_step_timeout);
+			eMBRegHolding_Write (MB_VOL_LEVEL1,			hvs->vol_level1);
+			eMBRegHolding_Write (MB_CURRRENT_MAX,		hvs->cur_max);
+			eMBRegHolding_Write (MB_CUR_ERR_RATE,		hvs->cur_err_rate);
+			eMBRegHolding_Write (MB_CUR_SCALE,			hvs->cur_scale);
 			eMBRegHolding_Write (MB_CUR_STEP,			hvs->cur_step);
 			eMBRegHolding_Write (MB_CUR_STEP_INTERVAL,	hvs->cur_step_interval);
-			eMBRegHolding_Write (MB_CUR_STEP_TIMEOUT,		hvs->cur_step_timeout);
-			eMBRegHolding_Write (MB_CUR_CTL_START,			hvs->cur_ctl_start);
+			eMBRegHolding_Write (MB_CUR_STEP_TIMEOUT,	hvs->cur_step_timeout);
+			eMBRegHolding_Write (MB_CUR_CTL_START,		hvs->cur_ctl_start);
 			
 			eMBRegInput_Write(MB_VOL_SET_R_ST	,hvs->vol_set);
 			eMBRegInput_Write(MB_CUR_SET_R_ST	,hvs->cur_set);
@@ -850,7 +852,7 @@ void hv_update_cur(HVS* hvs)
 	enqueue(hvs->cur_queue,temp);
 	memcpy(adc,hvs->cur_queue->queue,hvs->cur_queue->size);
 	exchange_sort16(adc,hvs->cur_queue->size);
-	temp = get_average16(adc+0,hvs->cur_queue->size-2*0);
+	temp = get_average16(adc+4,hvs->cur_queue->size-2*4);
 	
 	hvs->cur_fb = temp*2500*2/4095 * hvs->cur_scale;
 	if ( hvs->cur_fb < 150 )
@@ -878,21 +880,25 @@ int32_t hv_vol_task(HVS* hvs)
 		hv_update_vol(hvs);		//更新电压电流状态寄存器
 		hvs_update_from_modbus(hvs);
 		//--------------------------------------------------------------------------
+
+		if ( hvs->pre_vol_set != hvs->vol_set ){
+			hvs->pre_vol_set = hvs->vol_set;
+			hvs->st &=~HV_SET_OK;
+		}
 		
 		step = hvs->vol_step;
 		//高压输出在误差范围内
 		if ( hvs->vol_set == 0 /*&& hvs->vol_fb < 1000 */) {
 			hvs->st &= ~(HV_SET_TO | HV_INCTRL);	//清除故障状态标志
 			hvs->st &= ~(HV_SET_OK | HV_PWR);
-			PWM_DAC_SetmV( hvs->vol_dac_ch, (hvs->vol_ctl=0) );
-			DIO_Write(hvs->power_ch,DO_POWER_OFF);	
+			PWM_DAC_SetmV( (ePIN_NAME)hvs->vol_dac_ch, (hvs->vol_ctl=0) );
+			DIO_Write((ePIN_NAME)hvs->power_ch,DO_POWER_OFF);	
 		} else if ( abs(hvs->vol_set - hvs->vol_fb) < hvs->vol_set * hvs->vol_err_rate / 1000 ) {
 			hvs->st &= ~(HV_SET_TO | HV_INCTRL);	//清除故障状态标志
 			hvs->st |=  HV_SET_OK;
-		} else if ( hvs->cur_fb < 200 ) {	//电流<0.02
-			//电压需要调整
+		} else if ( (hvs->st & HV_SET_OK) == 0 ) {
 			//开启高压电源
-			DIO_Write(hvs->power_ch,DO_POWER_ON);
+			DIO_Write((ePIN_NAME)hvs->power_ch,DO_POWER_ON);
 			hvs->st |= HV_PWR;
 
 			//if ( hvs->st & HV_SET_OK ){
@@ -918,8 +924,8 @@ int32_t hv_vol_task(HVS* hvs)
 					hvs->vol_ctl += step;
 			}
 			
-			if ( hvs->vol_ctl - hvs->vol_set > 1500 )	//误差调整保护
-				hvs->vol_ctl = hvs->vol_set+1500;
+			if ( hvs->vol_ctl - hvs->vol_set > 3000 )	//误差调整保护
+				hvs->vol_ctl = hvs->vol_set+3000;
 			if ( hvs->vol_ctl > 3000 && hvs->vol_fb < 1000 )	//电源不受控保护
 				hvs->vol_ctl = 3000;
 			PWM_DAC_SetmV( hvs->vol_dac_ch, hvs->vol_ctl / hvs->vol_scale );
@@ -941,7 +947,6 @@ int32_t hv_cur_task(HVS* hvs)
 //	if ( (hvs->st & HV_ENABLE) == 0)
 //		return 0;
 		
-		hv_update_cur(hvs);
   	if ( (to_status = get_timeout(hvs->cur_check_to)) == TO_TIMEOUT ){
 		start_timeout(hvs->cur_check_to, hvs->cur_step_interval);
 
@@ -952,18 +957,17 @@ int32_t hv_cur_task(HVS* hvs)
 			hvs_update_to_modbus(hvs);
 			return 0;
 		} else if ( hvs->cur_ctl == 0 ){	//第一次开始调节
-			//hvs->cur_ctl = 2300;			//初始值
-			hvs->cur_ctl = hvs->vol_level1;			//初始值
+			hvs->cur_ctl = hvs->cur_ctl_start;			//初始值
 		}
 		
-		if ( (hvs->vol_set - hvs->vol_fb > 500) && (hvs->cur_fb > 100) ) {	//放电
-			// if ( hvs->cur_ctl > hvs->cur_step*50 ){
-				// hvs->cur_ctl -= hvs->cur_step*50;
-			// } else 
-				// hvs->cur_ctl = 0;
-			// PWM_DAC_SetmV( hvs->cur_dac_ch, hvs->cur_ctl );
-			// return 0;
-		}
+//		if ( (hvs->vol_set - hvs->vol_fb > 500) && (hvs->cur_fb > 100) ) {	//放电
+//			if ( hvs->cur_ctl > hvs->cur_step*50 ){
+//				hvs->cur_ctl -= hvs->cur_step*50;
+//			} else 
+//				hvs->cur_ctl = 0;
+//			PWM_DAC_SetmV( hvs->cur_dac_ch, hvs->cur_ctl );
+//			return 0;
+//		}
 					
 		if ( (temp = abs ( hvs->cur_set - hvs->cur_fb )) < (hvs->cur_set * hvs->cur_err_rate / 1000) ) {
 			hvs->st |= HV_CUR_SET_OK;
@@ -973,17 +977,16 @@ int32_t hv_cur_task(HVS* hvs)
 			if ( hvs->cur_fb < 150 ) {
 				step 	 = hvs->cur_step*10;
 			} else {
-				if ( temp > 1000 )
+				if ( 		temp > 1000 )
 					step 	 = hvs->cur_step * 2;
-				else if ( temp > 500 )		
+				else if ( 	temp > 500 )		
 					step 	 = hvs->cur_step * 1;
-				else if ( temp > 100 )		
+				else if ( 	temp > 100 )		
 					step 	 = hvs->cur_step * 1;
 				else	
 					step 	 = hvs->cur_step * 1;
 			}
 			
-			//if ( hvs->cur_fb > hvs->cur_set || (hvs->st & HV_SET_OK) == 0) {
 			if ( hvs->cur_fb > hvs->cur_set ) {
 				if ( hvs->cur_ctl > step ){
 					hvs->cur_ctl -= step;
@@ -1019,6 +1022,143 @@ void update_adc_modbus()
 		vPortExitCritical();
 	}
 }
+#if 0
+void hv_task(HVS* hvs)
+{
+	static uint32_t task=0;
+	static uint32_t pre_tick=0;
+	uint32_t cur_step;
+	
+	if ( hvs->vol_set == 0 ){
+		hvs->task = 0;
+	}
+	if ( hvs->st & HV_INCTRL ){
+		hvs->task = 0xff;
+	}
+	
+	switch(hvs->task){
+	case 0xff:
+		hvs->st &=~HV_PWR;
+		hvs->vol_set = 0;
+		DIO_Write( hvs->power_ch,DO_POWER_OFF );
+		PWM_DAC_SetmV( hvs->vol_dac_ch, (hvs->vol_ctl=0) );
+		PWM_DAC_SetmV( hvs->cur_dac_ch, (hvs->cur_ctl=0) );
+		break;
+	case 0:	//init
+		hvs->st = 0;
+		hvs->pre_hv_set = 0;
+		DIO_Write( hvs->power_ch,DO_POWER_OFF );
+		PWM_DAC_SetmV( hvs->vol_dac_ch, (hvs->vol_ctl=0) );
+		PWM_DAC_SetmV( hvs->cur_dac_ch, (hvs->cur_ctl=0) );
+		hvs_update_to_modbus(hvs);
+		hvs->pre_tick = GetTick();
+		hvs->task = 1;
+		break;
+	case 1:	// wait cmd
+		if ( hvs->pre_hv_set == 0 && hvs->vol_set ){
+			DIO_Write(hvs->power_ch,DO_POWER_ON);
+			hvs->pre_hv_set = hvs->vol_set;
+			hvs->vol_ctl = 500;
+			PWM_DAC_SetmV( hvs->vol_dac_ch, hvs->vol_ctl );
+			hvs->st = HV_PWR;
+		} else if ( Get_ElapseTick(hvs->pre_tick) > 1000 ){
+			if ( 400 > hvs->vol_fb || hvs->vol_fb > 600 ){
+				hvs->st |= HV_INCTRL;
+			} else {
+				hvs->pre_tick = GetTick();
+				hvs->task = 2;
+			}
+		}
+		break;
+	case 2:
+		if ( Get_ElapseTick(hvs->pre_tick) > hvs->vol_step_interval ){
+			if ( hvs->vol_ctl < hvs->vol_fb ){
+				hvs->vol_ctl += hvs->vol_step;
+				PWM_DAC_SetmV( hvs->vol_dac_ch, hvs->vol_ctl );
+				if ( labs(hvs->vol_ctl - hvs->vol_fb ) > 2000 )
+					hvs->st |= HV_INCTRL;
+			} else if ( hvs->vol_ctl >= hvs->vol_fb ){
+				hvs->task = 3;
+			}
+		}
+		break;
+	case 3:
+		if ( hvs->pre_cur_set == 0 && hvs->cur_set ){
+			hvs->pre_cur_set = hvs->cur_set;
+			pre_cur_fb = 0;
+			if ( hvs->cur_ctl_start ){
+				hvs->cur_ctl = hvs->cur_ctl_start;
+				hvs->task = 5;
+			} else {
+				hvs->cur_ctl = hvs->cur_ctl_init;
+				hvs->task = 4;
+			}
+			PWM_DAC_SetmV(hvs->cur_dac_ch, hvs->cur_ctl );
+			hvs->pre_tick = GetTick();
+		}
+		break;
+	case 4:
+		if ( Get_ElapseTick(hvs->pre_tick) > hvs->cur_step_interval ){
+			if ( hvs->cur_fb > 1000 ) {
+				hvs->cur_ctl = hvs->cur_ctl_init;
+				PWM_DAC_SetmV(hvs->cur_dac_ch, hvs->cur_ctl );
+			}				
+			hvs->pre_tick = GetTick();
+			hvs->task = 5;
+		}		
+		break;
+	case 5:
+		if ( Get_ElapseTick(hvs->pre_tick) > hvs->cur_step_interval ){
+			if ( hvs->vol_fb < hvs->vol_set )
+				hvs->vol_ctl += hvs->vol_step;
+			else 
+				hvs->vol_ctl -= hvs->vol_step;
+			
+			if ( abs ( hvs->cur_set - hvs->cur_fb ) < ( hvs->cur_set * hvs->cur_err_rate / 1000) ) {
+				hvs->st |= HV_CUR_SET_OK;
+			} else {
+				hvs->st &= ~HV_CUR_SET_OK;
+				
+				if ( pre_cur_fb == 0 && hvs->cur_fb > 150 ){
+					pre_cur_fb = 1;
+					hvs->cur_ctl_start = hvs->cur_ctl;
+				}
+
+				if ( 	  hvs->cur_fb < 150 )
+					cur_step = hvs->cur_step * 10;
+				else if ( hvs->cur_fb < 500 )
+					cur_step = hvs->cur_step * 4;
+				else if ( hvs->cur_fb < 1000 )
+					cur_step = hvs->cur_step * 2;
+				else if ( hvs->cur_fb < 2000 )		
+					cur_step = hvs->cur_step * 1;
+				
+				if ( hvs->cur_fb > hvs->cur_set ) {
+					if ( hvs->cur_ctl > cur_step ) 
+						hvs->cur_ctl -= cur_step; 
+					else 
+						hvs->cur_ctl = 0;
+				} else {
+					hvs->cur_ctl += cur_step;
+					if ( hvs->cur_ctl > CUR_DAC_FULL ) {
+						hvs->cur_ctl = CUR_DAC_FULL;
+						if ( hvs->cur_fb < 150 ){
+							hvs->cur_set = 0;
+							hvs->pre_cur_set = 0;
+							hvs->task = 3;
+						}
+					}
+				}
+				PWM_DAC_SetmV(hvs->cur_dac_ch, hvs->cur_ctl );
+			}
+		}
+		break;
+	default:
+		hvs->task = 0;
+		break;
+	}
+}
+#endif
 
 int32_t gl_696h_init()
 {
@@ -1073,7 +1213,10 @@ void vGL696H_Task( void *pvParameters )
 		if ( (ret = get_timeout(&sec_to)) == TO_TIMEOUT) {
 			start_timeout(&sec_to,1000);
 			sec ++;
-		 
+
+			hv_update_cur(&hvsl);
+			hv_update_cur(&hvsr);
+			
 			//----------自动控制---------------------------------------------------------------
 			auto_ctl_task();
 				
@@ -1103,6 +1246,7 @@ void vGL696H_Task( void *pvParameters )
 
 		//-----------------------------------------------------------------------------------
 		vTaskDelayUntil( &xLastWakeTime, configTICK_RATE_HZ/100 );
+		
 	}//	while(1){
 
 }

@@ -208,6 +208,26 @@ extern void vGL696H_Test_Task( void *pvParameters );
 sADC_CONFIG sADC_cfg[ADC_CHANNEL];
 
 /*-----------------------------------------------------------*/
+void IWDG_init(void)
+{
+	/* IWDG timeout equal to 100 ms (the timeout may varies due to LSI frequency
+	dispersion) */
+	/* Enable write access to IWDG_PR and IWDG_RLR registers */
+	IWDG_WriteAccessCmd(IWDG_WriteAccess_Enable);
+	
+	/* IWDG counter clock: 40KHz(LSI) / 32 = 1.25 KHz */
+	IWDG_SetPrescaler(IWDG_Prescaler_128);
+	
+	/* Set counter reload value to 625 */
+	IWDG_SetReload(625);
+	
+	/* Reload IWDG counter */
+	IWDG_ReloadCounter();
+	
+	/* Enable IWDG (the LSI oscillator will be enabled by hardware) */
+	IWDG_Enable();
+}
+
 
 static void prvSetupHardware( void )
 {
@@ -232,6 +252,8 @@ static void prvSetupHardware( void )
 	PWM_DAC_INIT();
 	Relay_INIT();
 	SPI_Bus_init();
+	
+	IWDG_init();
 	
 	/* Configure the timers used by the fast interrupt timer test. */
 	//vSetupTimerTest();

@@ -133,9 +133,16 @@ unsigned portBASE_TYPE uxLED;
 
 	for(;;)
 	{
+		/* Reload IWDG counter */
+		IWDG_ReloadCounter();
+
 		/* Delay for half the flash period then turn the LED on. */
 		vTaskDelayUntil( &xLastFlashTime, configTICK_RATE_HZ );
 		vParTestToggleLED( uxLED );
+
+		/* Reload IWDG counter */
+		IWDG_ReloadCounter();
+
 
 		/* Delay for half the flash period then turn the LED off. */
 		vTaskDelayUntil( &xLastFlashTime, configTICK_RATE_HZ );
