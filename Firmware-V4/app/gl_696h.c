@@ -518,7 +518,7 @@ int32_t auto_ctl_task(void)
 				auto_st++;
 			break;
 		case 4:
-			if ( mpump_ctl(MPUMP_RUN) == 0 )
+			if ( mpump_ctl(MPUMP_RUN|MPUMP_PWR_ON|MPUMP_HIGH_SP) == 0 )
 				auto_st++;
 			break;
 		case 5:
@@ -527,7 +527,7 @@ int32_t auto_ctl_task(void)
 			auto_st++;
 			break;
 		case 6:
-			eMBRegHolding_Write(MB_SYS_AUTOCTL,reg & ~SYS_AUTO_ON);
+			eMBRegInput_Write(MB_SYS_AUTOCTL,reg & (~SYS_AUTO_ON));
 			auto_st = 0x0F;
 			break;
 		default :
