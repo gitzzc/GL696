@@ -22,57 +22,36 @@
 //-------------------------------------------------------------------------
 
 typedef enum   
-{	
-	DO0=0,
-	DO1,
-	DO2,
-	DO3,
-	DO4,
-	DO5,
-	DO6,
-	DO7,
-	
-	DO8,
-	DO9,
-	DO10,
-	DO11,
-	DO12,
-	DO13,
-	DO14,
-	DO15,
-	
-	DO16,
-	DO17,
-	DO18,
-	DO19,
-	DO20,
+{
+	RELAY0=0,
+	RELAY1,	
+	RELAY2,	
+	RELAY3,	
+	RELAY4,	
+	RELAY5,	
+	RELAY6,	
+	RELAY7,	
 
-	DO_ADSEL0,
-	DO_ADSEL1,
-	DO_ADSEL2,
-	DO_DISEL0,
-	DO_DISEL1,
-	DO_DISEL2,
+	RELAY8,	
+	RELAY9,	
+	RELAY10,	
+	RELAY11,	
+	RELAY12,	
+	RELAY13,	
+	RELAY14,	
+	RELAY15,	
 
-	DI0,
-	DI1,
-	DI2,
-	DI3,
-
-	DO_LED
+	PWR_0,	
+	PWR_1,	
+	PWR_2,	
+	PWR_3,	
 } ePIN_NAME;
 
 //-------------------------------------------------------------------------
 typedef enum   
 {
-	FT_KEY1=0,	FT_VOUT9,	FT_VOUT1,FT_OC1,
-	FT_KEY2,		FT_VOUT10,FT_VOUT2,FT_OC2,
-	FT_KEY3,		FT_VOUT11,FT_VOUT3,FT_OC3,
-	FT_KEY4,		FT_VOUT12,FT_VOUT4,FT_OC4,
-	FT_KEY8,		FT_STATE1,FT_VOUT8,FT_OC8,
-	FT_KEY7,		FT_VOUT15,FT_VOUT7,FT_OC7,	
-	FT_KEY6,		FT_VOUT14,FT_VOUT6,FT_OC6,	
-	FT_KEY5,		FT_VOUT13,FT_VOUT5,FT_OC5,	
+	FLT_PC6 = 0,
+
 } eFILTER_NAME;
 //-------------------------------------------------------------------------
 typedef struct

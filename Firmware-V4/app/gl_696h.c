@@ -633,15 +633,19 @@ void hv_init(void)
 #endif	
 	hvsl.vol_err_rate		= 5;
 	hvsl.vol_step 			= 10;
-	hvsl.vol_step_interval	= 200;
+	hvsl.vol_step_interval	= 100;
 	hvsl.vol_step_timeout 	= 10000;
 	hvsl.vol_level1 		= 1000;
 
 	hvsl.cur_max 			= 3000;
 	hvsl.cur_err_rate		= 40;
+#ifdef OLD_HV_POWER	
 	hvsl.cur_scale 			= 2;
+#else
+	hvsl.cur_scale 			= 2;
+#endif
 	hvsl.cur_step 			= 1;
-	hvsl.cur_step_interval	= 10000;
+	hvsl.cur_step_interval	= 2000;
 	hvsl.cur_step_timeout	= 30000;
 	hvsl.cur_ctl_start		= 2300;
 	hvsl.vol_set	= 0;
@@ -660,15 +664,19 @@ void hv_init(void)
 
 	hvsr.vol_err_rate		= 5;
 	hvsr.vol_step 			= 10;
-	hvsr.vol_step_interval	= 200;
+	hvsr.vol_step_interval	= 100;
 	hvsr.vol_step_timeout 	= 10000;
 	hvsr.vol_level1 		= 1000;
 	
 	hvsr.cur_max 			= 3000;
 	hvsr.cur_err_rate		= 40;
-	hvsr.cur_scale 			= 2;
+#ifdef OLD_HV_POWER	
+	hvsl.cur_scale 			= 2;
+#else
+	hvsl.cur_scale 			= 2;
+#endif	
 	hvsr.cur_step 			= 1;
-	hvsr.cur_step_interval	= 10000;
+	hvsr.cur_step_interval	= 2000;
 	hvsr.cur_step_timeout	= 30000;
 	hvsr.cur_ctl_start		= 2300;
 	hvsr.vol_set	= 0;
@@ -867,8 +875,9 @@ void hv_update_cur(HVS* hvs)
 	
 	enqueue(hvs->cur_queue,temp);
 	memcpy(adc,hvs->cur_queue->queue,hvs->cur_queue->size);
-	exchange_sort16(adc,hvs->cur_queue->size);
-	temp = get_average16(adc+4,hvs->cur_queue->size-2*4);
+//	exchange_sort16(adc,hvs->cur_queue->size);
+//	temp = get_average16(adc+4,hvs->cur_queue->size-2*4);
+	temp = get_average16(adc,hvs->cur_queue->size);
 	
 	hvs->cur_fb = temp*2500*2/4095 * hvs->cur_scale;
 	if ( hvs->cur_fb < 150 )
@@ -908,25 +917,22 @@ int32_t hv_vol_task(HVS* hvs)
 			hvs->st &= ~(HV_SET_TO | HV_INCTRL);	//清除故障状态标志
 			hvs->st &= ~(HV_SET_OK | HV_PWR);
 			PWM_DAC_SetmV( (ePIN_NAME)hvs->vol_dac_ch, (hvs->vol_ctl=0) );
+			hvs->cur_set = 0;
+			PWM_DAC_SetmV( hvs->cur_dac_ch, (hvs->cur_ctl=0) );
 			DIO_Write((ePIN_NAME)hvs->power_ch,DO_POWER_OFF);	
 		} else if ( abs(hvs->vol_set - hvs->vol_fb) < hvs->vol_set * hvs->vol_err_rate / 1000 ) {
 			hvs->st &= ~(HV_SET_TO | HV_INCTRL);	//清除故障状态标志
 			hvs->st |=  HV_SET_OK;
-		} else if ( (hvs->st & HV_SET_OK) == 0 ) {
+		} else /*if ( (hvs->st & HV_SET_OK) == 0 )*/ {
 			//开启高压电源
 			DIO_Write((ePIN_NAME)hvs->power_ch,DO_POWER_ON);
 			hvs->st |= HV_PWR;
-
-			//if ( hvs->st & HV_SET_OK ){
-				//start_timeout(hvs->vol_check_to, hvs->vol_step_interval*10);
-			//} else 
-			{
-				step = hvs->vol_step;	
-				if 		( labs( hvs->vol_fb - hvs->vol_set) > 1000 )
-					step *= 10;
-				else if ( labs( hvs->vol_fb - hvs->vol_set) > 100 )
-					step *= 1;		
-			}
+			
+			step = hvs->vol_step;	
+			if 		( labs( hvs->vol_fb - hvs->vol_set) > 1000 )
+				step *= 10;
+			else if ( labs( hvs->vol_fb - hvs->vol_set) > 100 || hvs->st & HV_SET_OK )
+				step *= 1;		
 			
 			if ( hvs->vol_fb > hvs->vol_set ) {
 				if ( hvs->vol_ctl > step )
@@ -940,8 +946,10 @@ int32_t hv_vol_task(HVS* hvs)
 					hvs->vol_ctl += step;
 			}
 			
-			if ( hvs->vol_ctl - hvs->vol_set > 3000 )	//误差调整保护
+			if ( hvs->vol_ctl - hvs->vol_set > 3000 ){	//误差调整保护
 				hvs->vol_ctl = hvs->vol_set+3000;
+				hvs->cur_ctl --;
+			}
 			if ( hvs->vol_ctl > 3000 && hvs->vol_fb < 1000 )	//电源不受控保护
 				hvs->vol_ctl = 3000;
 			PWM_DAC_SetmV( hvs->vol_dac_ch, hvs->vol_ctl / hvs->ctl_scale );
@@ -990,15 +998,15 @@ int32_t hv_cur_task(HVS* hvs)
 		} else {
 			hvs->st &= ~HV_CUR_SET_OK;
 
-			if ( hvs->cur_fb < 150 ) {
-				step 	 = hvs->cur_step*10;
+			if ( hvs->cur_fb < 300 ) {
+				step 	 = hvs->cur_step*20;
 			} else {
 				if ( 		temp > 1000 )
-					step 	 = hvs->cur_step * 2;
+					step 	 = hvs->cur_step * 5;
 				else if ( 	temp > 500 )		
-					step 	 = hvs->cur_step * 1;
+					step 	 = hvs->cur_step * 3;
 				else if ( 	temp > 100 )		
-					step 	 = hvs->cur_step * 1;
+					step 	 = hvs->cur_step * 2;
 				else	
 					step 	 = hvs->cur_step * 1;
 			}
@@ -1224,14 +1232,16 @@ void vGL696H_Task( void *pvParameters )
 
 		vmeter_task();
 		update_adc_modbus();
+		
+		if ( (system_tick%100) == 0 ){
+			hv_update_cur(&hvsl);
+			hv_update_cur(&hvsr);
+		}			
 
 		//---------------------------------------------------------------------------------
 		if ( (ret = get_timeout(&sec_to)) == TO_TIMEOUT) {
 			start_timeout(&sec_to,1000);
 			sec ++;
-
-			hv_update_cur(&hvsl);
-			hv_update_cur(&hvsr);
 			
 			//----------自动控制---------------------------------------------------------------
 			auto_ctl_task();

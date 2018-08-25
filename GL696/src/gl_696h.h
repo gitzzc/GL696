@@ -1,8 +1,9 @@
 #ifndef __GL696H_H__
 #define __GL696H_H__
 
-#include "timerout.h"
+
 #include "stdint.h"
+#include "timer.h"
 
 typedef struct 
 {

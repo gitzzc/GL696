@@ -45,7 +45,7 @@ uint32_t str2ulong (int8_t *str)
 }
 
 //-------------------------------------------------------------------------
-short init_queue(pQUEUE q,uint16_t *buf,uint8_t size)
+uint16_t init_queue(pQUEUE q,uint16_t *buf,uint8_t size)
 {
 	if ( q == NULL || buf == NULL )
 		return -1;
@@ -57,21 +57,25 @@ short init_queue(pQUEUE q,uint16_t *buf,uint8_t size)
 }
 
 //插入队尾
-short enqueue(pQUEUE q,uint16_t da)
+uint16_t enqueue(pQUEUE q,uint16_t da)
 {
 	q->queue[q->rear++] = da;
-	q->rear %= q->size;
-	
+	if (q->rear == q->size)
+		q->rear = 0;
+
 	if (q->rear == q->front){
-	q->front ++;
-		q->front %= q->size;
-		return -1;
+		q->front ++;
+		if (q->front == q->size)
+			q->front = 0;
+		return 1;
 	}
+
 	return 0;
 }
 
+
 //删除队列头元素，用x返回
-short dequeue(pQUEUE q, uint16_t* x)
+uint16_t dequeue(pQUEUE q, uint16_t* x)
 {
 	if(q->front == q->rear)
 		return -1;

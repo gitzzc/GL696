@@ -19,18 +19,18 @@
 #define TBUFSIZE	270
 #define RBUFSIZE	270
 
-volatile static uint8_t tbuf[2][TBUFSIZE];	//串口数据发送缓冲
-volatile static uint8_t rbuf[2][RBUFSIZE];	//串口数据接收缓冲
-volatile static uint16_t tbuflen[2];		//发送缓冲区数据长度计数器
-volatile static uint16_t rbuflen[2];
+volatile static uint8_t tbuf[3][TBUFSIZE];	//串口数据发送缓冲
+volatile static uint8_t rbuf[3][RBUFSIZE];	//串口数据接收缓冲
+volatile static uint16_t tbuflen[3];		//发送缓冲区数据长度计数器
+volatile static uint16_t rbuflen[3];
 
-volatile static uint16_t t_in[2];			//发送缓冲区队列指针
-volatile static uint16_t t_out[2];
+volatile static uint16_t t_in[3];			//发送缓冲区队列指针
+volatile static uint16_t t_out[3];
 
-volatile static uint16_t r_in[2];			//接收缓冲区队列指针
-volatile static uint16_t r_out[2];
+volatile static uint16_t r_in[3];			//接收缓冲区队列指针
+volatile static uint16_t r_out[3];
 
-volatile static uint8_t tx_complete[2];
+volatile static uint8_t tx_complete[3];
 /*-----------------------------------------------------------*/
 
 /* UART interrupt handler. */
@@ -150,57 +150,178 @@ signed portBASE_TYPE xQueueSendIsEmpty( xQueueHandle pxQueue )
 /*
  * See the serial2.h header file.
  */
-xComPortHandle xSerialPortInitMinimal( unsigned portLONG ulWantedBaud, unsigned portBASE_TYPE uxQueueLength )
+xComPortHandle xSerialPortInitMinimal(  eCOMPort ePort, eBaud eWantedBaud, eParity eWantedParity, eDataBits eWantedDataBits, eStopBits eWantedStopBits )
 {
-xComPortHandle xReturn = 0;
-USART_InitTypeDef USART_InitStructure;
-NVIC_InitTypeDef NVIC_InitStructure;
-GPIO_InitTypeDef GPIO_InitStructure;
+	xComPortHandle xReturn = 0;
+	USART_InitTypeDef USART_InitStructure;
+	NVIC_InitTypeDef NVIC_InitStructure;
+	GPIO_InitTypeDef GPIO_InitStructure;
+	uint32_t baud,parity,data_bits,stop_bits;
 
-	r_in[0] = r_out[0] = 0;
-	t_in[0] = t_out[0] = 0;
-	tx_complete[0] = 1;
-	
-	/* Enable USART1 clock */
-	//GPIO_PinRemapConfig(GPIO_Remap_USART1, ENABLE);
-	RCC_APB2PeriphClockCmd( RCC_APB2Periph_USART1 | RCC_APB2Periph_GPIOA, ENABLE );	
+	if ( ePort > serMAX_PORTS )
+		return pdFALSE;
 
-	/* Configure USART1 Rx (PA10) as input floating */
-	GPIO_InitStructure.GPIO_Pin 			= GPIO_Pin_10;
-	GPIO_InitStructure.GPIO_Mode 			= GPIO_Mode_IN_FLOATING;
-	GPIO_Init( GPIOA, &GPIO_InitStructure );
-	
-	/* Configure USART1 Tx (PA9) as alternate function push-pull */
-	GPIO_InitStructure.GPIO_Pin 			= GPIO_Pin_9;
-	GPIO_InitStructure.GPIO_Speed 			= GPIO_Speed_50MHz;
-	GPIO_InitStructure.GPIO_Mode 			= GPIO_Mode_AF_OD;
-	GPIO_Init( GPIOA, &GPIO_InitStructure );
+	switch ( eWantedBaud ){
+		case ser1200:	baud = 1200;	break;
+		case ser2400:	baud = 2400;	break;
+		case ser4800:	baud = 4800;	break;
+		case ser9600:	baud = 9600;	break;
+		case ser19200:	baud = 19200;	break;
+		case ser38400:	baud = 38400;	break;
+		case ser57600:	baud = 57600;	break;
+		case ser115200:	baud = 115200;	break;
+		default :		baud = 115200;	break;
+	}
 
-	USART_InitStructure.USART_BaudRate 		= ulWantedBaud;
-	USART_InitStructure.USART_WordLength 	= USART_WordLength_8b;
-	USART_InitStructure.USART_StopBits 		= USART_StopBits_1;
-	USART_InitStructure.USART_Parity 		= USART_Parity_No ;
-	USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
-	USART_InitStructure.USART_Mode 			= USART_Mode_Rx | USART_Mode_Tx;
-	//USART_InitStructure.USART_Clock 		= USART_Clock_Disable;
-	//USART_InitStructure.USART_CPOL 		= USART_CPOL_Low;
-	//USART_InitStructure.USART_CPHA 		= USART_CPHA_2Edge;
-	//USART_InitStructure.USART_LastBit 	= USART_LastBit_Disable;
-	
-	USART_Init( USART1, &USART_InitStructure );
-	
-	USART_ITConfig( USART1, USART_IT_RXNE, ENABLE );
-	
-	NVIC_InitStructure.NVIC_IRQChannel = USART1_IRQn;
-	//NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = configLIBRARY_KERNEL_INTERRUPT_PRIORITY;
-	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 15;
-	NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
-	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
-	NVIC_Init( &NVIC_InitStructure );
+	switch ( eWantedParity ){
+		case serNO_PARITY:		parity = USART_Parity_No;	break;
+		case serODD_PARITY:		parity = USART_Parity_Odd;	break;
+		case serEVEN_PARITY:	parity = USART_Parity_Even;	break;
+		default :				parity = USART_Parity_No;	break;
+	}
 
-	RS485_RE_INIT(0);
-	
-	USART_Cmd( USART1, ENABLE );		
+	switch ( eWantedDataBits ){
+		case serBITS_8:		data_bits = USART_WordLength_8b;	break;
+		default :			data_bits = USART_WordLength_8b;	break;
+	}
+
+	switch ( eWantedStopBits ){
+		case serSTOP_1:		stop_bits = USART_StopBits_1;	break;
+		case serSTOP_2:		stop_bits = USART_StopBits_2;	break;
+		default :			stop_bits = USART_StopBits_2;	break;
+	}
+
+	switch ( ePort ){
+	case 0:
+		r_in[ePort] 		= r_out[ePort] = 0;
+		t_in[ePort] 		= t_out[ePort] = 0;
+		tx_complete[ePort] 	= 1;
+
+		USART_DeInit( USART1 );
+
+		/* Enable USART1 clock */
+		RCC_APB2PeriphClockCmd( RCC_APB2Periph_USART1 | RCC_APB2Periph_GPIOA | RCC_APB2Periph_AFIO, ENABLE );
+
+		/* Configure USART1 Rx (PA10) as input floating */
+		GPIO_InitStructure.GPIO_Pin = GPIO_Pin_10;
+		GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+		GPIO_Init( GPIOA, &GPIO_InitStructure );
+
+		/* Configure USART1 Tx (PA9) as alternate function push-pull */
+		GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9;
+		GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+		//GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
+		GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_OD;
+		GPIO_Init( GPIOA, &GPIO_InitStructure );
+
+		USART_InitStructure.USART_BaudRate = baud;
+		USART_InitStructure.USART_WordLength = data_bits;
+		USART_InitStructure.USART_StopBits = stop_bits;
+		USART_InitStructure.USART_Parity = parity ;
+		USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
+		USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;
+		USART_Init( USART1, &USART_InitStructure );
+
+		NVIC_InitStructure.NVIC_IRQChannel = USART1_IRQn;
+		NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 15;
+		NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
+		NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+		NVIC_Init( &NVIC_InitStructure );
+
+		USART_ITConfig( USART1, USART_IT_RXNE, ENABLE );
+		USART_Cmd( USART1, ENABLE );
+		xReturn = pdTRUE;
+		break;
+	case 1:
+		r_in[ePort] 		= r_out[ePort] = 0;
+		t_in[ePort] 		= t_out[ePort] = 0;
+		tx_complete[ePort] 	= 1;
+
+		USART_DeInit( USART2 );
+
+		/* Enable USART1 clock */
+		RCC_APB1PeriphClockCmd( RCC_APB1Periph_USART2, ENABLE );
+		RCC_APB2PeriphClockCmd( RCC_APB2Periph_GPIOA | RCC_APB2Periph_AFIO, ENABLE );
+
+		GPIO_PinRemapConfig(GPIO_Remap_USART2, DISABLE);
+
+		/* Configure USART1 Rx (PA10) as input floating */
+		GPIO_InitStructure.GPIO_Pin = GPIO_Pin_3;
+		GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPD;
+		GPIO_Init( GPIOA, &GPIO_InitStructure );
+
+		/* Configure USART1 Tx (PA9) as alternate function push-pull */
+		GPIO_InitStructure.GPIO_Pin = GPIO_Pin_2;
+		GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+		//GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
+		GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_OD;
+		GPIO_Init( GPIOA, &GPIO_InitStructure );
+
+		USART_InitStructure.USART_BaudRate = baud;
+		USART_InitStructure.USART_WordLength = data_bits;
+		USART_InitStructure.USART_StopBits = stop_bits;
+		USART_InitStructure.USART_Parity = parity ;
+		USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
+		USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;
+		USART_Init( USART2, &USART_InitStructure );
+
+		USART_ITConfig( USART2, USART_IT_RXNE, ENABLE );
+
+		NVIC_InitStructure.NVIC_IRQChannel = USART2_IRQn;
+		NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 15;
+		NVIC_InitStructure.NVIC_IRQChannelSubPriority = 1;
+		NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+		NVIC_Init( &NVIC_InitStructure );
+
+		USART_Cmd( USART2, ENABLE );
+		xReturn = pdTRUE;
+		break;
+	case 2:
+		r_in[ePort] 		= r_out[ePort] = 0;
+		t_in[ePort] 		= t_out[ePort] = 0;
+		tx_complete[ePort] 	= 1;
+
+		USART_DeInit( USART3 );
+
+		/* Enable USART1 clock */
+		RCC_APB1PeriphClockCmd( RCC_APB1Periph_USART3, ENABLE );
+		RCC_APB2PeriphClockCmd( RCC_APB2Periph_GPIOB | RCC_APB2Periph_AFIO, ENABLE );
+
+		/* Configure USART1 Rx (PA10) as input floating */
+		GPIO_InitStructure.GPIO_Pin = GPIO_Pin_11;
+		GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+		GPIO_Init( GPIOB, &GPIO_InitStructure );
+
+		/* Configure USART1 Tx (PA9) as alternate function push-pull */
+		GPIO_InitStructure.GPIO_Pin = GPIO_Pin_10;
+		GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+		//GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
+		GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_OD;
+		GPIO_Init( GPIOB, &GPIO_InitStructure );
+
+		USART_InitStructure.USART_BaudRate 		= baud;
+		USART_InitStructure.USART_WordLength 	= data_bits;
+		USART_InitStructure.USART_StopBits 		= stop_bits;
+		USART_InitStructure.USART_Parity 		= parity ;
+		USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
+		USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;
+		USART_Init( USART3, &USART_InitStructure );
+
+		USART_ITConfig( USART3, USART_IT_RXNE, ENABLE );
+
+		NVIC_InitStructure.NVIC_IRQChannel = USART3_IRQn;
+		NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 15;
+		NVIC_InitStructure.NVIC_IRQChannelSubPriority = 2;
+		NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+		NVIC_Init( &NVIC_InitStructure );
+
+		USART_Cmd( USART3, ENABLE );
+		xReturn = pdTRUE;
+		break;
+	default:
+		xReturn = pdFALSE;
+		break;
+	}
 
 	return xReturn;
 }

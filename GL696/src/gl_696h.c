@@ -3,21 +3,17 @@
 #include <string.h>
 #include <stdint.h>
 
-#include "FreeRTOS.h"
-#include "task.h"
-
 #include "stm32f10x.h"
 
-#include "timerout.h"
-
+#include "timer.h"
 #include "gl_696h.h"
 #include "adc.h"
 #include "gpio.h"
 #include "pwm_dac.h"
-#include "serials.h"
+#include "serial.h"
 #include "mb_reg_map.h"
 #include "modbus.h"
-//#include "gsm.h"
+#include "common.h"
 
 //----------------------------------------------------------------
 #define FD110A_HEAD			0x80
@@ -48,6 +44,15 @@
 #define CUR_DAC_FULL	5000
 
 //----------------------------------------------------------------
+#define pdTRUE		( 1 )
+#define pdFALSE		( 0 )
+
+#define pdHIGH		( 1 )
+#define pdLOW		( 0 )
+
+#define pdON		( 1 )
+#define pdOFF		( 0 )
+
 #define DO_RELAY_ON 	pdLOW
 #define DO_RELAY_OFF 	pdHIGH
 
@@ -101,6 +106,8 @@ uint16_t sample_buf[SAMPLE_ADC_FILTER_SIZE];
 void hvs_update_to_modbus(HVS* hvs);
 void hv_enbale(HVS* hvs,int32_t st);
 void hvs_update_from_modbus(HVS* hvs);
+int32_t mpump_ctl( uint16_t cmd );
+
 //-----------------------------------------------------------------------
 QUEUE vol_queue_l;
 QUEUE vol_queue_r;
@@ -109,27 +116,57 @@ QUEUE cur_queue_r;
 
 QUEUE sample_queue;
 
-void init_queue(pQUEUE q,uint16_t *buf,uint8_t size)
+static uint16_t   	usRegInputStart = REG_INPUT_START;
+volatile uint16_t   	usRegInputBuf[REG_INPUT_NREGS];
+static uint16_t   	usRegHoldingStart = REG_HOLDING_START;
+volatile uint16_t   	usRegHoldingBuf[REG_HOLDING_NREGS];
+
+void
+eMBRegHolding_Write( uint16_t usAddress, uint16_t usRegVal )
 {
-	q->queue = buf;
-	q->size  = size;
-	q->front = q->rear = 0;
+    int iRegIndex;
+	uint16_t RegVal;
+
+	usAddress ++;
+    if( ( usAddress < REG_HOLDING_START ) || \
+        ( usAddress > REG_HOLDING_START + REG_HOLDING_NREGS ) ){
+    	return;
+    }
+
+	iRegIndex = ( int )( usAddress - usRegHoldingStart );
+    usRegHoldingBuf[iRegIndex]  = usRegVal;
 }
-
-uint8_t enqueue(pQUEUE q,uint16_t da)
+/*---------------------------------------------------------------------------*/
+uint16_t
+eMBRegInput_Read( uint16_t usAddress )
 {
-	q->queue[q->rear++] = da;
-	if (q->rear == q->size)
-		q->rear = 0;
+    int iRegIndex;
+	uint16_t RegVal;
 
-	if (q->rear == q->front){
-		q->front ++;
-		if (q->front == q->size)
-			q->front = 0;
-		return 1;
-	}
+	usAddress ++;
+    if( ( usAddress < REG_INPUT_START ) || \
+        ( usAddress > REG_INPUT_START + REG_INPUT_NREGS ) )
+    	return 0;
 
-	return 0;
+	iRegIndex = ( int )( usAddress - usRegInputStart );
+	RegVal = usRegInputBuf[iRegIndex];
+	return RegVal;
+}
+/*---------------------------------------------------------------------------*/
+void
+eMBRegInput_Write( uint16_t usAddress, uint16_t usRegVal )
+{
+    int iRegIndex;
+	uint16_t RegVal;
+
+	usAddress ++;
+    if( ( usAddress < REG_INPUT_START ) || ( usAddress > REG_INPUT_START + REG_INPUT_NREGS ) )
+    	return ;
+
+	iRegIndex = ( int )( usAddress - usRegInputStart );
+    usRegInputBuf[iRegIndex]  = usRegVal;
+
+    return ;
 }
 
 //-----------------------------------------------------------------------------------
@@ -165,7 +202,7 @@ void vmeter_init(void)
 
 	vmeter_ctl(VMETER_PWR_OFF);
 
-	vmeter_Port = xSerialPortInit( serCOM3, ser1200, serNO_PARITY, serBITS_8, serSTOP_1, 256 );
+	vmeter_Port = xSerialPortInitMinimal( serCOM3, ser1200, serNO_PARITY, serBITS_8, serSTOP_1 );
 }
 
 float vmeter_get_adc(void)
@@ -205,7 +242,7 @@ int32_t vmeter_task()
 	if ( rx_len + 9 > sizeof(buf) )
 		rx_len = 0;
 
-	i = xSerialGet(vmeter_Port,buf+rx_len,sizeof(buf)-rx_len,configTICK_RATE_HZ/100);
+	i = xSerialGet(vmeter_Port,buf+rx_len,sizeof(buf)-rx_len,10);
 	if ( i == 0 )
 		return 0;
 	/*
@@ -349,7 +386,7 @@ void mpump_ctl_from_com(int32_t cmd)
 	buf [3] = cmd;	//xor
 
 	vSerialPut( FD110A_Port, buf, 4);
-	vTaskDelay( configTICK_RATE_HZ/10 );
+//	vTaskDelay( 100 );
 	//vSerialPut( FD110A_Port, buf, 4);
 }
 
@@ -366,7 +403,7 @@ int32_t mpump_task()
 	if ( rx_len + 11 > sizeof(buf) )
 		rx_len = 0;
 		
-	i = xSerialGet(FD110A_Port,buf+rx_len,sizeof(buf)-rx_len,configTICK_RATE_HZ/100);
+	i = xSerialGet(FD110A_Port,buf+rx_len,sizeof(buf)-rx_len,10);
 	rx_len += i;
 	
 	for ( i=0; rx_len-i>=11; i++ ){
@@ -405,7 +442,7 @@ void mpump_init(void)
 	eMBRegHolding_Write( MB_VMETER_SET0	,(((uint8_t*)&vmeter_set0)[0]<<8)|(((uint8_t*)&vmeter_set0)[1]));
 	eMBRegHolding_Write( MB_VMETER_SET1	,(((uint8_t*)&vmeter_set0)[2]<<8)|(((uint8_t*)&vmeter_set0)[3]));
   
-	FD110A_Port = xSerialPortInit( serCOM2, ser4800, serNO_PARITY, serBITS_8, serSTOP_1, 256 );
+	FD110A_Port = xSerialPortInitMinimal( serCOM2, ser4800, serNO_PARITY, serBITS_8, serSTOP_1 );
 	mpump_ctl(POWER_OFF | MPUMP_STOP);
 	DIO_Write( PWR_3, pdLOW );		//关闭TD400分子泵，X1-PIN8	
 }
@@ -551,7 +588,7 @@ int32_t auto_ctl_task(void)
 			timer = 0;
 			break;
 		case 1:
-			if ( hvsl.vol_fb < 1000 && hvsr.vol_fb < 1000 || timer ++ > 5){
+			if ( (hvsl.vol_fb < 1000) && (hvsr.vol_fb < 1000) || timer ++ > 5){
 				PWM_DAC_SetmV( HVL_CUR_DAC_CH, 0 );//关比例阀
 				PWM_DAC_SetmV( HVR_CUR_DAC_CH, 0 );//关比例阀
 				DIO_Write((ePIN_NAME)hvsl.power_ch,DO_POWER_OFF);	
@@ -1033,9 +1070,7 @@ void update_adc_modbus()
 	for(i=0;i<8;i++){
 		ADC_Get(ADC_Channel_8+i,buf16,32);	
 		exchange_sort16(buf16,32);
-		vPortEnterCritical();
 		eMBRegInput_Write(MB_ADC0+i,get_average16(buf16+6,32-2*6));
-		vPortExitCritical();
 	}
 }
 #if 0
@@ -1261,7 +1296,7 @@ void vGL696H_Task( void *pvParameters )
 		}
 
 		//-----------------------------------------------------------------------------------
-		vTaskDelayUntil( &xLastWakeTime, configTICK_RATE_HZ/100 );
+		vTaskDelayUntil( &xLastWakeTime, 10 );
 		
 	}//	while(1){
 
@@ -1282,9 +1317,9 @@ void vGL696H_Test_Task( void *pvParameters )
 
 	xLastWakeTime = xTaskGetTickCount ();
 
-	Port1		= xSerialPortInit( serCOM1, ser115200, serNO_PARITY, serBITS_8, serSTOP_1, 256 );
-	FD110A_Port = xSerialPortInit( serCOM2, ser115200, serNO_PARITY, serBITS_8, serSTOP_1, 256 );
-	vmeter_Port = xSerialPortInit( serCOM3, ser115200, serNO_PARITY, serBITS_8, serSTOP_1, 256 );
+	Port1		= xSerialPortInitMinimal( serCOM1, ser115200, serNO_PARITY, serBITS_8, serSTOP_1 );
+	FD110A_Port = xSerialPortInitMinimal( serCOM2, ser115200, serNO_PARITY, serBITS_8, serSTOP_1 );
+	vmeter_Port = xSerialPortInitMinimal( serCOM3, ser115200, serNO_PARITY, serBITS_8, serSTOP_1 );
 	
 	while(1){
 #if 1
@@ -1302,18 +1337,18 @@ void vGL696H_Test_Task( void *pvParameters )
 		if ( vol < 5000 )	vol += 5;   else vol = 0;
 		vol = 2500;
   	    
-		if ( (len = xSerialGet(Port1,buf,sizeof(buf),configTICK_RATE_HZ/1000)) ){
+		if ( (len = xSerialGet(Port1,buf,sizeof(buf),2)) ){
 			vSerialPut( Port1, buf, len);
 		}
-		if ( (len = xSerialGet(FD110A_Port,buf,sizeof(buf),configTICK_RATE_HZ/1000)) ){
+		if ( (len = xSerialGet(FD110A_Port,buf,sizeof(buf),2)) ){
 			vSerialPut( FD110A_Port, buf, len);
 		}
-		if ( (len = xSerialGet(vmeter_Port,buf,sizeof(buf),configTICK_RATE_HZ/1000)) ){
+		if ( (len = xSerialGet(vmeter_Port,buf,sizeof(buf),2)) ){
 			vSerialPut( vmeter_Port, buf, len);
 		}
 #endif
 		//-----------------------------------------------------------------------------------
-		vTaskDelayUntil( &xLastWakeTime, configTICK_RATE_HZ/100 );
+		vTaskDelayUntil( &xLastWakeTime, 10 );
 	}//	while(1){
 
 }

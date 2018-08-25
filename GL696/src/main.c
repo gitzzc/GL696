@@ -112,6 +112,7 @@ extern uint8_t MB_FrameBuf[];
 /* Private function prototypes -----------------------------------------------*/
 void System_Periodic_Handle(void);
 
+#if 0
 void MBM_Read(uint8_t slave)
 {
 	uint8_t buf[16];
@@ -255,13 +256,6 @@ void MBM_Task(void)
 			rx_index = 0;
 		MB_FrameBuf[rx_index++] = ch;
 	}
-}
-
-void ADC_SetChannel(uint8_t ch)
-{
-	if ( (ch >> 0)&0x01 )	DIO_Write(DO_ADSEL0,1);	else DIO_Write(DO_ADSEL0,0);
-	if ( (ch >> 1)&0x01 ) DIO_Write(DO_ADSEL1,1);	else DIO_Write(DO_ADSEL1,0);
-	if ( (ch >> 2)&0x01 ) DIO_Write(DO_ADSEL2,1);	else DIO_Write(DO_ADSEL2,0);
 }
 
 void PAU_task(void)
@@ -534,6 +528,7 @@ void UDP_task(void)
 		start_timeout(&sTO_upd,UDP_HZ);
 	}
 }
+#endif
 
 /**
   * @brief  Main program.
@@ -551,17 +546,17 @@ int main(void)
 	ConfigRead(&sSys_cfg,&sSys_def_cfg);
 	ADC_SetConfig(&sSys_cfg.sADC_cfg[0]);
 	ADC_InitChannel();
-	xSerialPortInitMinimal(9600,0);
+	xSerialPortInitMinimal(serCOM1,ser115200,serNO_PARITY,serBITS_8,serSTOP_1);
 //	vSerialPutString(0,"hello word.\r\n",0);
-	MB_Init(MB_DEV_ADDR,9600);
-	KB_Init();
-	LCD_Init();
-	Win_Init();
+	//MB_Init(MB_DEV_ADDR,9600);
+	//KB_Init();
+	//LCD_Init();
+	//Win_Init();
 
 	/* Initilaize the LwIP stack */
-	LwIP_Init();
-	tcp_server_init();
-	MB_tcp_server_init();
+	//LwIP_Init();
+	//tcp_server_init();
+	//MB_tcp_server_init();
 
 	LED_SetStartup(&sLED_cfg,HZ_TICK/10,HZ_TICK/10,10);
 	LED_SetDefault(&sLED_cfg,HZ_TICK/2,HZ_TICK);
@@ -570,11 +565,11 @@ int main(void)
 	while (1)
 	{
 		LED_Task(&sLED_cfg);
-		PAU_task();
-		MBM_Task();
-		UDP_task();
-		KB_Task();
-		Win_Task();
+		//PAU_task();
+		//MBM_Task();
+		//UDP_task();
+		//KB_Task();
+		//Win_Task();
 
 		/* Periodic tasks */
 		System_Periodic_Handle();

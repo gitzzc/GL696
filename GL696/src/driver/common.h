@@ -5,15 +5,15 @@
 //-----------------QUEUE-----------------------------------------------
 typedef struct 
 {
-	uint16_t * queue;
+	uint16_t *queue;
 	uint8_t size;
 	uint8_t front;
 	uint8_t rear;
 } QUEUE,*pQUEUE;
 
-short init_queue(pQUEUE q,uint16_t *buf,uint8_t size);
-short enqueue(pQUEUE q,uint16_t da);
-short dequeue(pQUEUE q,uint16_t * da);
+uint16_t init_queue(pQUEUE q,uint16_t *buf,uint8_t size);
+uint16_t enqueue(pQUEUE q,uint16_t da);
+uint16_t dequeue(pQUEUE q,uint16_t * da);
 //---------------------------------------------------------------------
 uint8_t asc2hex(int8_t asc);
 uint8_t str2uchar(int8_t *str);

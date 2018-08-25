@@ -17,8 +17,8 @@ typedef struct _LED_CONFIG_
 	sTIMEOUT stimer;
 } sLED_CONFIG,*psLED_CONFIG;
 
-#define SYSTEM_LED_ON() 	DIO_Write(DO_LED,pdLOW)
-#define SYSTEM_LED_OFF() 	DIO_Write(DO_LED,pdHIGH)
+#define SYSTEM_LED_ON() 	/*DIO_Write(DIO_LED,pdLOW)*/
+#define SYSTEM_LED_OFF() 	/*DIO_Write(DIO_LED,pdHIGH)*/
 
 
 void LED_SetStartup(psLED_CONFIG cfg,uint32_t on_time,uint32_t off_time,uint32_t off_count);

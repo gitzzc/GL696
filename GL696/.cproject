@@ -93,12 +93,19 @@
 						<toolChain id="fr.ac6.managedbuild.toolchain.gnu.cross.exe.debug.88545301" name="Ac6 STM32 MCU GCC" superClass="fr.ac6.managedbuild.toolchain.gnu.cross.exe.debug" unusedChildren="">
 							<option id="fr.ac6.managedbuild.option.gnu.cross.mcu.834649846.2083842911" name="Mcu" superClass="fr.ac6.managedbuild.option.gnu.cross.mcu.834649846"/>
 							<option id="fr.ac6.managedbuild.option.gnu.cross.board.574865504.26592888" name="Board" superClass="fr.ac6.managedbuild.option.gnu.cross.board.574865504"/>
-							<tool id="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.370259075" name="MCU GCC Compiler" superClass="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.1470113476"/>
+							<targetPlatform archList="all" binaryParser="org.eclipse.cdt.core.ELF" id="fr.ac6.managedbuild.targetPlatform.gnu.cross" isAbstract="false" osList="all" superClass="fr.ac6.managedbuild.targetPlatform.gnu.cross"/>
+							<tool id="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.370259075" name="MCU GCC Compiler" superClass="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.1470113476">
+								<inputType id="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.input.c.729966528" superClass="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.input.c"/>
+								<inputType id="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.input.s.1182876133" superClass="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.input.s"/>
+							</tool>
 							<tool id="fr.ac6.managedbuild.tool.gnu.cross.cpp.compiler.1740025138" name="MCU G++ Compiler" superClass="fr.ac6.managedbuild.tool.gnu.cross.cpp.compiler.1143928917"/>
 							<tool id="fr.ac6.managedbuild.tool.gnu.cross.c.linker.68844530" name="MCU GCC Linker" superClass="fr.ac6.managedbuild.tool.gnu.cross.c.linker.1702017917"/>
 							<tool id="fr.ac6.managedbuild.tool.gnu.cross.cpp.linker.937643145" name="MCU G++ Linker" superClass="fr.ac6.managedbuild.tool.gnu.cross.cpp.linker.1045610746"/>
 							<tool id="fr.ac6.managedbuild.tool.gnu.archiver.1616601077" name="MCU GCC Archiver" superClass="fr.ac6.managedbuild.tool.gnu.archiver.651773909"/>
-							<tool id="fr.ac6.managedbuild.tool.gnu.cross.assembler.1203446231" name="MCU GCC Assembler" superClass="fr.ac6.managedbuild.tool.gnu.cross.assembler.1316126606"/>
+							<tool id="fr.ac6.managedbuild.tool.gnu.cross.assembler.1203446231" name="MCU GCC Assembler" superClass="fr.ac6.managedbuild.tool.gnu.cross.assembler.1316126606">
+								<inputType id="cdt.managedbuild.tool.gnu.assembler.input.1010513181" superClass="cdt.managedbuild.tool.gnu.assembler.input"/>
+								<inputType id="fr.ac6.managedbuild.tool.gnu.cross.assembler.input.388539867" superClass="fr.ac6.managedbuild.tool.gnu.cross.assembler.input"/>
+							</tool>
 						</toolChain>
 					</folderInfo>
 					<sourceEntries>
@@ -106,7 +113,7 @@
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="STM32_ETH_Driver"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="StdPeriph_Driver"/>
 						<entry excluding="port/STM32/arch/FreeRTOS|src/core/ipv6" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="lwip_v1.3.1"/>
-						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="src"/>
+						<entry excluding="driver/lcdtimer.c|driver/lcd.c|driver/keyboard.c|driver/fonts.c|windows|client.c|server.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="src"/>
 					</sourceEntries>
 				</configuration>
 			</storageModule>
@@ -202,7 +209,7 @@
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="STM32_ETH_Driver"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="StdPeriph_Driver"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="lwip_v1.3.1"/>
-						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="src"/>
+						<entry excluding="driver/lcdtimer.c|driver/lcd.c|driver/keyboard.c|driver/fonts.c|windows|client.c|server.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="src"/>
 					</sourceEntries>
 				</configuration>
 			</storageModule>
