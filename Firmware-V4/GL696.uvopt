@@ -954,10 +954,10 @@
       <FileType>1</FileType>
       <tvExp>0</tvExp>
       <Focus>0</Focus>
-      <ColumnNumber>0</ColumnNumber>
+      <ColumnNumber>16</ColumnNumber>
       <tvExpOptDlg>0</tvExpOptDlg>
-      <TopLine>726</TopLine>
-      <CurrentLine>637</CurrentLine>
+      <TopLine>752</TopLine>
+      <CurrentLine>753</CurrentLine>
       <bDave2>0</bDave2>
       <PathWithFileName>.\app\gl_696h.c</PathWithFileName>
       <FilenameWithoutPath>gl_696h.c</FilenameWithoutPath>
@@ -1044,7 +1044,7 @@
       <Focus>0</Focus>
       <ColumnNumber>0</ColumnNumber>
       <tvExpOptDlg>0</tvExpOptDlg>
-      <TopLine>68</TopLine>
+      <TopLine>70</TopLine>
       <CurrentLine>76</CurrentLine>
       <bDave2>0</bDave2>
       <PathWithFileName>.\driver\serial.c</PathWithFileName>
@@ -1308,7 +1308,7 @@
       <Focus>0</Focus>
       <ColumnNumber>41</ColumnNumber>
       <tvExpOptDlg>0</tvExpOptDlg>
-      <TopLine>21</TopLine>
+      <TopLine>22</TopLine>
       <CurrentLine>28</CurrentLine>
       <bDave2>0</bDave2>
       <PathWithFileName>.\freemodbus\port\modbus.c</PathWithFileName>

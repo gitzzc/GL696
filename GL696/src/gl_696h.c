@@ -1223,10 +1223,14 @@ int32_t gl_696h_init()
 	baffle_init();
 	hv_init();
 
-	return 0;
+	//开电机
+	DIO_Write(RELAY0,DO_RELAY_ON);
+	DIO_Write(RELAY1,DO_RELAY_OFF);
+	//开真空规电源
+	DIO_Write(PWR_2,DO_POWER_ON);
 }
 
-
+#if 0
 void vGL696H_Task( void *pvParameters )
 {
 	uint32_t i=0,j,motor = 0;
@@ -1236,24 +1240,24 @@ void vGL696H_Task( void *pvParameters )
 
 	(void)pvParameters;
 
-	gl_696h_init(); 
+	gl_696h_init();
 	xLastWakeTime = xTaskGetTickCount ();
 	//开电机
 	motor = MOTOR_FORWARD;
 	DIO_Write(RELAY0,DO_RELAY_ON);
 	DIO_Write(RELAY1,DO_RELAY_OFF);
 	//开真空规电源
-	DIO_Write(PWR_2,DO_POWER_ON);	
-	
+	DIO_Write(PWR_2,DO_POWER_ON);
+
 	while(1){
 		system_tick += 10;
-		
+
 		//led_task();
-	  
+
 		//---------------------------------------------------------------------------------
 		hv_vol_task(&hvsl);
 		hv_cur_task(&hvsl);
-		
+
 		hv_vol_task(&hvsr);
 		hv_cur_task(&hvsr);
 
@@ -1267,15 +1271,15 @@ void vGL696H_Task( void *pvParameters )
 
 			hv_update_cur(&hvsl);
 			hv_update_cur(&hvsr);
-			
+
 			//----------自动控制---------------------------------------------------------------
 			auto_ctl_task();
-				
+
 			mpump_task();
 			if ( (sec % 2) == 0 ) {
 				mpump_ctl_from_com(FD110A_STATUS);
-			} 
-			
+			}
+
 			if ( (sec % 60 ) == 0 ){
 				i = eMBRegInput_Read(MB_MOTOR_ST);
 				i =  motor;
@@ -1297,10 +1301,64 @@ void vGL696H_Task( void *pvParameters )
 
 		//-----------------------------------------------------------------------------------
 		vTaskDelayUntil( &xLastWakeTime, 10 );
-		
+
 	}//	while(1){
 
 }
+#else
+
+void vGL696H_Task( void )
+{
+	static sTIMEOUT sTO_GL;
+	static uint32_t sec;
+	static 	motor = MOTOR_FORWARD;
+	uint32_t i;
+	uint8_t ret;
+
+	if ( (ret = get_timeout(&sTO_GL)) == TO_TIMEOUT) {
+		start_timeout(&sTO_GL,100);
+		sec ++;
+
+		hv_vol_task(&hvsl);
+		hv_cur_task(&hvsl);
+		hv_vol_task(&hvsr);
+		hv_cur_task(&hvsr);
+
+		vmeter_task();
+
+		if ( (sec % 10) == 0 ){
+			hv_update_cur(&hvsl);
+			hv_update_cur(&hvsr);
+
+			auto_ctl_task();
+			mpump_task();
+
+			if ( (sec % 20) == 0 ) {
+				mpump_ctl_from_com(FD110A_STATUS);
+			} 
+			
+			if ( (sec % 600 ) == 0 ){
+				i = eMBRegInput_Read(MB_MOTOR_ST);
+				i =  motor;
+				/*if ( (i & MOTOR_ENABLE) )*/ {
+					if ( i & MOTOR_FORWARD ){
+						motor = MOTOR_BACKWARD;
+						DIO_Write(RELAY0,DO_RELAY_OFF);
+						DIO_Write(RELAY1,DO_RELAY_ON);
+					} else {
+						motor = MOTOR_FORWARD;
+						DIO_Write(RELAY0,DO_RELAY_ON);
+						DIO_Write(RELAY1,DO_RELAY_OFF);
+					}
+				}
+			}
+		}
+		
+	} else if ( ret != TO_RUNING ){
+		start_timeout(&sTO_GL,100);
+	}
+}
+#endif
 
 
 void vGL696H_Test_Task( void *pvParameters )

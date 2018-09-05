@@ -558,8 +558,7 @@ int main(void)
 	//tcp_server_init();
 	//MB_tcp_server_init();
 
-	LED_SetStartup(&sLED_cfg,HZ_TICK/10,HZ_TICK/10,10);
-	LED_SetDefault(&sLED_cfg,HZ_TICK/2,HZ_TICK);
+	gl_696h_init();
 
 	/* Infinite loop */
 	while (1)
@@ -570,6 +569,7 @@ int main(void)
 		//UDP_task();
 		//KB_Task();
 		//Win_Task();
+		vGL696H_Task();
 
 		/* Periodic tasks */
 		System_Periodic_Handle();

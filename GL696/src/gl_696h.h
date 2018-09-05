@@ -4,16 +4,7 @@
 
 #include "stdint.h"
 #include "timer.h"
-
-typedef struct 
-{
-  unsigned short * queue;
-  unsigned char size;
-  unsigned char front;
-  unsigned char rear;
-} QUEUE,*pQUEUE;
-
-
+#include "common.h"
 
 typedef struct 
 {
@@ -77,7 +68,7 @@ extern HVS hvsl;
 extern float vmeter;
 
 
-void vGL696H_Task( void *pvParameters );
-
+//void vGL696H_Task( void *pvParameters );
+void vGL696H_Task( void );
 
 #endif

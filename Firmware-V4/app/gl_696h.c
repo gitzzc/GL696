@@ -948,7 +948,8 @@ int32_t hv_vol_task(HVS* hvs)
 			
 			if ( hvs->vol_ctl - hvs->vol_set > 3000 ){	//误差调整保护
 				hvs->vol_ctl = hvs->vol_set+3000;
-				hvs->cur_ctl --;
+				if ( hvs->cur_ctl )
+					hvs->cur_ctl --;
 			}
 			if ( hvs->vol_ctl > 3000 && hvs->vol_fb < 1000 )	//电源不受控保护
 				hvs->vol_ctl = 3000;
