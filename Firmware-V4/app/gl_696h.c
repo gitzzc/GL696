@@ -180,7 +180,7 @@ float vmeter_get_adc(void)
 	
 	vol = vol*2500*4/4095*1137/1000;
 	
-	vmeter = pow(10,1.667*vol/1000-9.333);
+	vmeter = pow(10,1.667*vol/1000-9.333)/10;
 	
 	if 		( 5.0e-9 > vmeter 	) vmeter = 5.0e-9;
 	else if ( vmeter > 1000 	) vmeter = 1000;
@@ -198,7 +198,7 @@ int32_t vmeter_task()
 	float vmeter;
 	int32_t i;
 	
-#if 1
+#if 0
 	if ( eMBRegInput_Read(MB_VMETER_ST) & VMETER_PWR_OFF )
 		return 0;
 	
@@ -258,9 +258,13 @@ int32_t powerpump_ctl(int32_t cmd)
 	if ( cmd & POWER_OFF ) {
 		eMBRegInput_Write(MB_SYS_AUTOCTL_ST,0);
 		eMBRegHolding_Write(MB_SYS_AUTOCTL,SYS_AUTO_OFF);
+		DIO_Write(RELAY0,DO_RELAY_OFF);
+		DIO_Write(RELAY1,DO_RELAY_OFF);
+		eMBRegInput_Write(MB_MOTOR_ST, eMBRegInput_Read(MB_MOTOR_ST) & ~MOTOR_ENABLE );
 	} else if ( cmd & POWER_ON ) {
 		eMBRegInput_Write(MB_SYS_AUTOCTL_ST,0);
 		eMBRegHolding_Write(MB_SYS_AUTOCTL,SYS_AUTO_ON);
+		eMBRegInput_Write(MB_MOTOR_ST, eMBRegInput_Read(MB_MOTOR_ST) | MOTOR_ENABLE );
 		auto_st_end = 1;
 	}
 	return 0;
@@ -393,7 +397,7 @@ int32_t mpump_task()
 
 void mpump_init(void)
 {
-	float vmeter_set0 = 8.0e0;
+	float vmeter_set0 = 8.0e1;
 	
 	eMBRegInput_Write( MB_MPUMP_ST	,0);
 	eMBRegInput_Write( MB_MPUMP_FREQ,0);
@@ -407,7 +411,7 @@ void mpump_init(void)
   
 	FD110A_Port = xSerialPortInit( serCOM2, ser4800, serNO_PARITY, serBITS_8, serSTOP_1, 256 );
 	mpump_ctl(POWER_OFF | MPUMP_STOP);
-	DIO_Write( PWR_3, pdLOW );		//关闭TD400分子泵，X1-PIN8	
+	DIO_Write( PWR_3, pdHIGH );		//关闭TD400分子泵，X1-PIN8	
 }
 
 int32_t mpump_ctl( uint16_t cmd )
@@ -426,7 +430,7 @@ int32_t mpump_ctl( uint16_t cmd )
 			return -1;
 		
 		eMBRegInput_Write(MB_MPUMP_ST,MPUMP_PWR_OFF);
-		DIO_Write( PWR_3, pdLOW );		//关闭TD400分子泵，X1-PIN8
+		DIO_Write( PWR_3, pdHIGH );		//关闭TD400分子泵，X1-PIN8
 	} else if ( cmd & MPUMP_PWR_ON ) {
 		//如果机械泵还没有上电，则不可以开启分子泵
 		if ( !(eMBRegInput_Read(MB_POWERPUMP_ST) & POWER_ON) ) {
@@ -436,7 +440,7 @@ int32_t mpump_ctl( uint16_t cmd )
 			
 		//DIO_Write( MPUMP_RELAY_CH, DO_RELAY_ON );
 		eMBRegInput_Write(MB_MPUMP_ST,MPUMP_PWR_ON);
-		DIO_Write(PWR_3,pdHIGH);	//Control MPump on X1-pin8;
+		DIO_Write(PWR_3, pdLOW );	//Control MPump on X1-pin8;
 	}
 	
 	if ( (eMBRegInput_Read(MB_MPUMP_ST) & MPUMP_PWR_ON) != MPUMP_PWR_ON )
@@ -473,7 +477,7 @@ int32_t mpump_ctl( uint16_t cmd )
 		
 		mpump_ctl_from_com(FD110A_START);
 		eMBRegInput_Write(MB_MPUMP_ST, (reg | MPUMP_RUN));
-		DIO_Write( PWR_3, pdHIGH );//开启TD400分子泵，X1-PIN8
+		DIO_Write( PWR_3, pdLOW );//开启TD400分子泵，X1-PIN8
 	} 
 
 	return 0;
@@ -498,6 +502,7 @@ int32_t auto_ctl_task(void)
 		case 0:
 			DIO_Write( RELAY_POWERPUMP, DO_RELAY_ON );
 			eMBRegInput_Write(MB_POWERPUMP_ST,POWERPUMP_PWR_ON);
+			eMBRegInput_Write(MB_MOTOR_ST, eMBRegInput_Read(MB_MOTOR_ST) | MOTOR_ENABLE );
 	
 			//先开机械泵，延迟数秒后，再开启真空计
 			start_timeout(&vmeter_to,eMBRegHolding_Read(VMETER_START_DELAY));
@@ -585,6 +590,7 @@ int32_t auto_ctl_task(void)
 			vmeter_ctl(VMETER_PWR_OFF);
 
 			start_timeout(&vmeter_to,eMBRegHolding_Read(VMETER_STOP_DELAY));
+//			start_timeout(&vmeter_to,5*60*1000);
 			auto_st ++;
 			break;
 		case 5:
@@ -594,6 +600,9 @@ int32_t auto_ctl_task(void)
 				DIO_Write( RELAY_POWERPUMP, DO_RELAY_OFF );
 				eMBRegInput_Write(MB_POWERPUMP_ST,POWERPUMP_PWR_OFF);
 				auto_st ++;
+		DIO_Write(RELAY0,DO_RELAY_OFF);
+		DIO_Write(RELAY1,DO_RELAY_OFF);
+		eMBRegInput_Write(MB_MOTOR_ST, eMBRegInput_Read(MB_MOTOR_ST) & ~MOTOR_ENABLE );
 			}
 			break;		
 		case 6:
@@ -640,7 +649,7 @@ void hv_init(void)
 	hvsl.cur_max 			= 3000;
 	hvsl.cur_err_rate		= 40;
 #ifdef OLD_HV_POWER	
-	hvsl.cur_scale 			= 2;
+	hvsl.cur_scale 			= 4;
 #else
 	hvsl.cur_scale 			= 2;
 #endif
@@ -671,9 +680,9 @@ void hv_init(void)
 	hvsr.cur_max 			= 3000;
 	hvsr.cur_err_rate		= 40;
 #ifdef OLD_HV_POWER	
-	hvsl.cur_scale 			= 2;
+	hvsr.cur_scale 			= 4;
 #else
-	hvsl.cur_scale 			= 2;
+	hvsr.cur_scale 			= 2;
 #endif	
 	hvsr.cur_step 			= 1;
 	hvsr.cur_step_interval	= 2000;
@@ -1000,12 +1009,12 @@ int32_t hv_cur_task(HVS* hvs)
 			hvs->st &= ~HV_CUR_SET_OK;
 
 			if ( hvs->cur_fb < 300 ) {
-				step 	 = hvs->cur_step*20;
+				step 	 = hvs->cur_step*2;
 			} else {
 				if ( 		temp > 1000 )
-					step 	 = hvs->cur_step * 5;
+					step 	 = hvs->cur_step * 2;
 				else if ( 	temp > 500 )		
-					step 	 = hvs->cur_step * 3;
+					step 	 = hvs->cur_step * 2;
 				else if ( 	temp > 100 )		
 					step 	 = hvs->cur_step * 2;
 				else	
@@ -1254,8 +1263,8 @@ void vGL696H_Task( void *pvParameters )
 			
 			if ( (sec % 60 ) == 0 ){
 				i = eMBRegInput_Read(MB_MOTOR_ST);
-				i =  motor;
-				/*if ( (i & MOTOR_ENABLE) )*/ {
+				//i =  motor;
+				if ( (i & MOTOR_ENABLE) ) {
 					if ( i & MOTOR_FORWARD ){
 						motor = MOTOR_BACKWARD;
 						DIO_Write(RELAY0,DO_RELAY_OFF);

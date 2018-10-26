@@ -138,7 +138,7 @@ void PWM_DAC_Set(uint8_t ch,uint16_t value)
 
 void PWM_DAC_SetmV(uint8_t ch,uint16_t mv)
 {
-	PWM_DAC_Set(ch,mv*4096/3300/2);
+	PWM_DAC_Set(ch,mv*4096/3300);
 }
 
 
