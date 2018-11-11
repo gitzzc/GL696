@@ -64,7 +64,8 @@
 #define RELAY_SAMPLE_LED 	RELAY13
 #define RELAY_SAMPLE_LED1 	RELAY14
 
-#define OLD_HV_POWER
+//#define OLD_HV_POWER
+#define NEW_LED_TYPE_POWER
 
 //--------------------------------------------------
 HVS hvsr;
@@ -180,7 +181,7 @@ float vmeter_get_adc(void)
 	
 	vol = vol*2500*4/4095*1137/1000;
 	
-	vmeter = pow(10,1.667*vol/1000-9.333)/10;
+	vmeter = pow(10,1.667*vol/1000-9.333);
 	
 	if 		( 5.0e-9 > vmeter 	) vmeter = 5.0e-9;
 	else if ( vmeter > 1000 	) vmeter = 1000;
@@ -197,53 +198,44 @@ int32_t vmeter_task()
 	static int32_t rx_len=0;
 	float vmeter;
 	int32_t i;
-	
-#if 0
-	if ( eMBRegInput_Read(MB_VMETER_ST) & VMETER_PWR_OFF )
-		return 0;
-	
-	if ( rx_len + 9 > sizeof(buf) )
-		rx_len = 0;
+#if 1	
+	if ( eMBRegInput_Read(MB_VMETER_ST) & VMETER_PWR_ON ) {
 
-	i = xSerialGet(vmeter_Port,buf+rx_len,sizeof(buf)-rx_len,configTICK_RATE_HZ/100);
-	if ( i == 0 )
-		return 0;
-	/*
-	buf[0] = 0x2A;
-	memcpy(buf+1,"2313----",8);
-	*/
+		if ( rx_len + 9 > sizeof(buf) ) rx_len = 0;
 	
-	rx_len += i;
-	for ( i=0; rx_len-i>=9; i++ ){
-		if ( buf[i] == 0x2A ){
-			rx_len = 0;
-			buf[i+9] = '\0';
-			//usart_printf(DBGU,"\r\n真空计:%s,",buf+i+1);
-			
-			if ( buf[i+2+4] != '-' )//只要电离规有数据，则以些为准 
-				i += 4;
-			else if ( buf[i+2] == '?' || buf[i+2] == '-'){
-				rx_len=0 ;
-				break;
+		i = xSerialGet(vmeter_Port,buf+rx_len,sizeof(buf)-rx_len,configTICK_RATE_HZ/100);
+		if ( i > 0 ) {
+			rx_len += i;
+			for ( i=0; rx_len-i>=9; i++ ){
+				if ( buf[i] == 0x2A ){
+					rx_len = 0;
+					buf[i+9] = '\0';
+
+					if ( buf[i+2+4] != '-' )//只要电离规有数据，则以些为准
+						i += 4;
+					else if ( buf[i+2] == '?' || buf[i+2] == '-'){
+						rx_len=0;
+						break;
+					}
+
+					vmeter = buf[i+1] - '0';
+					vmeter += (float)(buf[i+2] - '0')/10;
+					if ( buf[i+3] == '+' )
+						vmeter *= pow(10,(buf[i+4]-'0'));
+					else if ( buf[i+3] == '-' )
+						vmeter *= pow(10,-(buf[i+4]-'0'));
+
+					vmeter_set_reg(vmeter);
+					return 1;	//有串口数据返回，不处理模拟规
+				}
 			}
-				
-			vmeter = buf[i+1] - '0';
-			vmeter += (float)(buf[i+2] - '0')/10;
-			if ( buf[i+3] == '+' )
-				vmeter *= pow(10,(buf[i+4]-'0'));
-			else if ( buf[i+3] == '-' )
-				vmeter *= pow(10,-(buf[i+4]-'0'));
-
-			vmeter_set_reg(vmeter);
-			break;
 		}
 	}
-#else 
+#endif
 	vmeter = vmeter_get_adc();
 	vmeter_set_reg(vmeter);
-#endif
-	
-	return 0;
+
+	return 1;
 }
 
 //-----------------------------------------------------------------------------------
@@ -251,6 +243,9 @@ int32_t vmeter_task()
 void powerpump_init(void)
 {
 	eMBRegInput_Write(MB_POWERPUMP_ST,POWERPUMP_PWR_OFF);
+	DIO_Write(RELAY0,DO_RELAY_OFF);
+	DIO_Write(RELAY1,DO_RELAY_OFF);
+	eMBRegInput_Write(MB_MOTOR_ST, 0 );
 }
 
 int32_t powerpump_ctl(int32_t cmd)
@@ -631,9 +626,12 @@ void hv_init(void)
 	init_queue(&vol_queue_r,vol_buf_r,VOL_ADC_FILTER_SIZE);	
 	init_queue(&cur_queue_l,cur_buf_l,CUR_ADC_FILTER_SIZE);	
 	init_queue(&cur_queue_r,cur_buf_r,CUR_ADC_FILTER_SIZE);	
-
+//--------------------L--------------------------------------
 	hvsl.vol_max 			= 15000;
 #ifdef OLD_HV_POWER	
+	hvsl.vol_scale 			= 5;	//=3?
+	hvsl.ctl_scale 			= 3;	//=3?
+#elif defined (NEW_LED_TYPE_POWER)
 	hvsl.vol_scale 			= 5;	//=3?
 	hvsl.ctl_scale 			= 3;	//=3?
 #else
@@ -650,20 +648,29 @@ void hv_init(void)
 	hvsl.cur_err_rate		= 40;
 #ifdef OLD_HV_POWER	
 	hvsl.cur_scale 			= 4;
+#elif defined (NEW_LED_TYPE_POWER)
+	hvsl.cur_scale 			= 4;
 #else
 	hvsl.cur_scale 			= 2;
 #endif
 	hvsl.cur_step 			= 1;
-	hvsl.cur_step_interval	= 2000;
+	hvsl.cur_step_interval	= 5000;
 	hvsl.cur_step_timeout	= 30000;
+#ifdef NEW_LED_TYPE_POWER
+	hvsl.cur_ctl_start		= 1100;
+#else
 	hvsl.cur_ctl_start		= 2300;
+#endif
 	hvsl.vol_set	= 0;
 	hvsl.cur_set	= 0;
 	hvsl.vol_set	= 0;
 	hvsl.cur_set	= 0;
-
+//----------------------R------------------------------------
 	hvsr.vol_max 			= 15000;
 #ifdef OLD_HV_POWER	
+	hvsr.vol_scale 			= 5;	//=3?
+	hvsr.ctl_scale 			= 3;	//=3?
+#elif defined (NEW_LED_TYPE_POWER)
 	hvsr.vol_scale 			= 5;	//=3?
 	hvsr.ctl_scale 			= 3;	//=3?
 #else
@@ -681,13 +688,20 @@ void hv_init(void)
 	hvsr.cur_err_rate		= 40;
 #ifdef OLD_HV_POWER	
 	hvsr.cur_scale 			= 4;
+#elif defined (NEW_LED_TYPE_POWER)
+	hvsr.cur_scale 			= 4;
 #else
 	hvsr.cur_scale 			= 2;
 #endif	
 	hvsr.cur_step 			= 1;
-	hvsr.cur_step_interval	= 2000;
+	hvsr.cur_step_interval	= 5000;
 	hvsr.cur_step_timeout	= 30000;
+#ifdef NEW_LED_TYPE_POWER
+	hvsr.cur_ctl_start		= 1100;
+#else
 	hvsr.cur_ctl_start		= 2300;
+#endif
+
 	hvsr.vol_set	= 0;
 	hvsr.cur_set	= 0;
 	hvsr.vol_set	= 0;
@@ -1008,15 +1022,15 @@ int32_t hv_cur_task(HVS* hvs)
 		} else {
 			hvs->st &= ~HV_CUR_SET_OK;
 
-			if ( hvs->cur_fb < 300 ) {
-				step 	 = hvs->cur_step*2;
+			if ( hvs->cur_fb < 300 ) { 		//300*0.1uA = 0.03mA
+				step 	 = hvs->cur_step*5;
 			} else {
-				if ( 		temp > 1000 )
+				if ( 		temp > 1000 )	//1000*0.1uA = 0.1mA
 					step 	 = hvs->cur_step * 2;
-				else if ( 	temp > 500 )		
-					step 	 = hvs->cur_step * 2;
-				else if ( 	temp > 100 )		
-					step 	 = hvs->cur_step * 2;
+				else if ( 	temp > 500 )	//1000*0.1uA = 0.05mA
+					step 	 = hvs->cur_step * 1;
+				else if ( 	temp > 100 )	//1000*0.1uA = 0.01mA	
+					step 	 = hvs->cur_step * 1;
 				else	
 					step 	 = hvs->cur_step * 1;
 			}
@@ -1043,19 +1057,6 @@ int32_t hv_cur_task(HVS* hvs)
 	return 0;
 }			
 
-void update_adc_modbus()
-{
-	uint16_t buf16[32];
-	uint16_t i;
-	
-	for(i=0;i<8;i++){
-		ADC_Get(ADC_Channel_8+i,buf16,32);	
-		exchange_sort16(buf16,32);
-		vPortEnterCritical();
-		eMBRegInput_Write(MB_ADC0+i,get_average16(buf16+6,32-2*6));
-		vPortExitCritical();
-	}
-}
 #if 0
 void hv_task(HVS* hvs)
 {
@@ -1223,7 +1224,7 @@ void vGL696H_Task( void *pvParameters )
 	xLastWakeTime = xTaskGetTickCount ();
 	//开电机
 	motor = MOTOR_FORWARD;
-	DIO_Write(RELAY0,DO_RELAY_ON);
+	DIO_Write(RELAY0,DO_RELAY_OFF);
 	DIO_Write(RELAY1,DO_RELAY_OFF);
 	//开真空规电源
 	DIO_Write(PWR_2,DO_POWER_ON);	
@@ -1241,7 +1242,6 @@ void vGL696H_Task( void *pvParameters )
 		hv_cur_task(&hvsr);
 
 		vmeter_task();
-		update_adc_modbus();
 		
 		if ( (system_tick%100) == 0 ){
 			hv_update_cur(&hvsl);
@@ -1276,6 +1276,7 @@ void vGL696H_Task( void *pvParameters )
 					}
 				}
 			}
+		
 	    } else if ( ret != TO_RUNING ){
 			start_timeout(&sec_to,1000);
 		}
