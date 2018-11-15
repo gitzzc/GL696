@@ -70,6 +70,8 @@
 //--------------------------------------------------
 HVS hvsr;
 HVS hvsl;
+
+sMPUMP sMPump;
 //¼ì²â¶¨Ê±Æ÷
 sTIMEOUT hvl_vol_set_to,hvl_vol_check_to;
 sTIMEOUT hvl_cur_set_to,hvl_cur_check_to;
@@ -388,6 +390,81 @@ int32_t mpump_task()
 		}
 	}	
 	return 0;		
+}
+
+
+int32_t mpump_td400_task()
+{
+	static uint8_t buf[64];
+	static int32_t rx_len=0;
+	int32_t i;
+	//uint8_t xor;
+	static uint32_t task = 0;
+	static uint8_t sum = 0;
+
+	if ( xSerialIsArrive(FD110A_Port) == pdFALSE )
+		return 0;
+
+	if ( rx_len + 24 > sizeof(buf) )
+		rx_len = 0;
+
+	for ( i=0; rx_len-i>=11; i++ ){
+		if ( xSerialGetChar(FD110A_Port,buf+rx_len,configTICK_RATE_HZ/1000) == pdFALSE )
+			break;
+		if ( buf[rx_len] == 0x02 )
+			rx_len = 0;
+		else if {
+			rx_len ++;
+			sum ^= buf[rx_len];
+			switch( task ){
+			case 0:	//STX
+				if ( buf[rx_len] == 0x02 ) { task ++; sum = 0; break;
+			case 1: //LGE
+				if ( buf[rx_len] ==   22 ) {
+					task ++;
+				} else {
+					task = 0; rx_len = 0;
+				}
+				break;
+			case 2: //ADR
+				if ( buf[rx_len] == 0 /*|| buf[rx_len] == TD400_ADDRESS*/) {
+					task ++;
+				} else {
+					task = 0; rx_len = 0;
+				}
+			case 3:
+				if ( rx_len >= 23 ) {
+					if ( sum ) break;
+					sMPump.freq 	= ((uint16_t)buf[13]<<8) | buf[14];
+					sMPump.voltage  = ((uint16_t)buf[21]<<8) | buf[22];
+					sMPump.current  = ((uint16_t)buf[17]<<8) | buf[18];
+					sMPump.temperature = ((uint16_t)buf[15]<<8) | buf[16];
+				}
+				break;
+			default:
+				task = 0;
+				rx_len = 0;
+				break;
+			}
+		if ( buf[i] == 0xAB && buf[i+1] == 0x91 && buf[i+2] == 0x07 ){
+			//for(xor=0,j=1;j<buf[i+2]+2;j++)
+			//	xor ^= buf[i+j];
+			//if ( xor != buf[10] ){
+			//	rx_len = 0;
+			//	return 0;
+			//}
+
+			eMBRegInput_Write(MB_MPUMP_ST	,buf[i+3]);//Ìí¼ÓµÍ8Î»×´Ì¬
+			eMBRegInput_Write(MB_MPUMP_FREQ	,buf[i+4]*100 + buf[i+5]);
+			eMBRegInput_Write(MB_MPUMP_VOL	,buf[i+6]*100 + buf[i+7]);
+			eMBRegInput_Write(MB_MPUMP_CUR	,buf[i+8]*100 + buf[i+9]);
+			if ( eMBRegInput_Read(MB_MPUMP_FREQ) > 999 )
+				eMBRegInput_Write(MB_MPUMP_FREQ,999);
+			rx_len = 0;
+			break;
+		}
+	}
+	return 0;
 }
 
 void mpump_init(void)

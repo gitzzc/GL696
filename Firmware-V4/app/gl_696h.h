@@ -71,6 +71,15 @@ typedef struct
 	unsigned short mpump_freq;
 } SYSCTL;
 
+typedef struct _MPUMP_
+{
+	unsigned short status;
+	unsigned short freq;
+	unsigned short voltage;
+	unsigned short current;
+	unsigned short alarm;
+} sMPUMP,*psMPUP;
+
 extern HVS hvsr;
 extern HVS hvsl;
 extern float vmeter;
