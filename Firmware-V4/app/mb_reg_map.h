@@ -282,97 +282,11 @@
 #define MB_TEMP_SET11			0x3B
 
 
-
-
-#define MB_SMS_CMD      0x40
-  #define MB_SMS_SEND   (1<<0)
-  
-#define MB_SMS_SERVER	0x46
-#define MB_SMS_SERVER1	0x47
-#define MB_SMS_SERVER2	0x48
-#define MB_SMS_SERVER3	0x49
-#define MB_SMS_SERVER4	0x4A
-#define MB_SMS_SERVER5	0x4B
-#define MB_SMS_SERVER6	0x4C
-#define MB_SMS_SERVER7	0x4D
-#define MB_SMS_SERVER8	0x4E
-#define MB_SMS_SERVER9	0x4F
-
-#define MB_SMS_PHONE	0x50
-#define MB_SMS_PHONE1	0x51
-#define MB_SMS_PHONE2	0x52
-#define MB_SMS_PHONE3	0x53
-#define MB_SMS_PHONE4	0x54
-#define MB_SMS_PHONE5	0x55
-#define MB_SMS_PHONE6	0x56
-#define MB_SMS_PHONE7	0x57
-#define MB_SMS_PHONE8	0x58
-#define MB_SMS_PHONE9	0x59
-
-#define MB_SMS_TEXT		0x60	
-#define MB_SMS_TEXT1 	0x61	
-#define MB_SMS_TEXT2 	0x62	
-#define MB_SMS_TEXT3 	0x63	
-#define MB_SMS_TEXT4 	0x64	
-#define MB_SMS_TEXT5 	0x65	
-#define MB_SMS_TEXT6 	0x66	
-#define MB_SMS_TEXT7 	0x67	
-#define MB_SMS_TEXT8 	0x68	
-#define MB_SMS_TEXT9 	0x69	
-#define MB_SMS_TEXT10 	0x6A	
-#define MB_SMS_TEXT11 	0x6B	
-#define MB_SMS_TEXT12 	0x6C	
-#define MB_SMS_TEXT13 	0x6D	
-#define MB_SMS_TEXT14 	0x6E	
-#define MB_SMS_TEXT15 	0x6F	
-#define MB_SMS_TEXT16 	0x70	
-#define MB_SMS_TEXT17 	0x71	
-#define MB_SMS_TEXT18 	0x72	
-#define MB_SMS_TEXT19 	0x73	
-#define MB_SMS_TEXT20 	0x74	
-#define MB_SMS_TEXT21 	0x75	
-#define MB_SMS_TEXT22 	0x76	
-#define MB_SMS_TEXT23 	0x77	
-#define MB_SMS_TEXT24 	0x78	
-#define MB_SMS_TEXT25 	0x79	
-#define MB_SMS_TEXT26 	0x7A	
-#define MB_SMS_TEXT27 	0x7B	
-#define MB_SMS_TEXT28 	0x7C
-#define MB_SMS_TEXT29 	0x7D	
-#define MB_SMS_TEXT30 	0x7E	
-#define MB_SMS_TEXT31 	0x7F	
-#define MB_SMS_TEXT32 	0x80
-#define MB_SMS_TEXT33 	0x81	
-#define MB_SMS_TEXT34 	0x82	
-#define MB_SMS_TEXT35 	0x83	
-#define MB_SMS_TEXT36 	0x84	
-#define MB_SMS_TEXT37 	0x85	
-#define MB_SMS_TEXT38 	0x86	
-#define MB_SMS_TEXT39 	0x87	
-#define MB_SMS_TEXT40 	0x88	
-#define MB_SMS_TEXT41 	0x89	
-#define MB_SMS_TEXT42 	0x8A	
-#define MB_SMS_TEXT43 	0x8B	
-#define MB_SMS_TEXT44 	0x8C	
-#define MB_SMS_TEXT45 	0x8D	
-#define MB_SMS_TEXT46 	0x8E	
-#define MB_SMS_TEXT47 	0x8F	
-#define MB_SMS_TEXT48 	0x90	
-#define MB_SMS_TEXT49 	0x91	
-#define MB_SMS_TEXT50 	0x92	
-#define MB_SMS_TEXT51 	0x93	
-#define MB_SMS_TEXT52 	0x94	
-#define MB_SMS_TEXT53 	0x95	
-#define MB_SMS_TEXT54 	0x96	
-#define MB_SMS_TEXT55 	0x97	
-#define MB_SMS_TEXT56 	0x98	
-#define MB_SMS_TEXT57 	0x99	
-#define MB_SMS_TEXT58 	0x9A	
-#define MB_SMS_TEXT59 	0x9B	
-#define MB_SMS_TEXT60 	0x9C	
-#define MB_SMS_TEXT61 	0x9D	
-#define MB_SMS_TEXT62 	0x9E	
-#define MB_SMS_TEXT63 	0x9F	
+//----------------------------------------------------------------------
+#define MB_BASE		0X100
+#define MB_POWER_PUMP		(MB_BASE+0x01)
+#define MB_MOLECULAR_PUMP	(MB_BASE+0x02)
+#define MB_VMETER			(MB_BASE+0x03)
 
 //----------------------------------------------------------------------
 

@@ -100,7 +100,8 @@ typedef enum
 	serBITS_5, 
 	serBITS_6, 
 	serBITS_7, 
-	serBITS_8 
+	serBITS_8,
+	serBITS_9 
 } eDataBits;
 
 typedef enum 

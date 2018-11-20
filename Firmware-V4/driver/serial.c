@@ -115,6 +115,7 @@ signed portBASE_TYPE xSerialPortBaseInit( eCOMPort ePort, eBaud eWantedBaud, ePa
 	
 	switch ( eWantedDataBits ){
 		case serBITS_8:		data_bits = USART_WordLength_8b;	break;
+		case serBITS_9:		data_bits = USART_WordLength_9b;	break;
 		default :			data_bits = USART_WordLength_8b;	break;
 	}
 
