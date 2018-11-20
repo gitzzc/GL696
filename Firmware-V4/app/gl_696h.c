@@ -78,7 +78,6 @@ sTIMEOUT hvl_cur_set_to,hvl_cur_check_to;
 
 sTIMEOUT hvr_vol_set_to,hvr_vol_check_to;
 sTIMEOUT hvr_cur_set_to,hvr_cur_check_to;
-sTIMEOUT sec_to;
 //----------------------------------------------------------------
 //真空计开关定时器，机械泵打开20S后开真空计，机械泵关闭前先关闭真空计
 sTIMEOUT led_to;
@@ -356,10 +355,20 @@ void mpump_ctl_from_com(int32_t cmd)
 
 int32_t mpump_task()
 {
+	static sTIMEOUT sto_500ms;
 	static uint8_t buf[64];
 	static int32_t rx_len=0;
+	uint32_t ret;
 	int32_t i;
 	//uint8_t xor;
+
+	if ( (ret = get_timeout(&sto_500ms)) == TO_TIMEOUT) {
+		start_timeout(&sto_500ms,500);
+
+		mpump_ctl_from_com(FD110A_STATUS);
+	}  else if ( ret != TO_RUNING ){
+		start_timeout(&sto_500ms,500);
+	}
 
 	if ( xSerialIsArrive(FD110A_Port) == pdFALSE )
 		return 0;
@@ -388,19 +397,64 @@ int32_t mpump_task()
 			rx_len = 0;
 			break;
 		}
-	}	
-	return 0;		
+	}
+	return 0;
 }
 
+void mpump_td400_ctl(uint8_t run)
+{
+	uint8_t buf[32];
+	uint32_t index = 0;
+	uint32_t i;
+
+	memset(buf,0,sizeof(buf));
+	buf [index++] = 0x02;	//STX
+	buf [index++] = 0x16;	//LGE
+	buf [index++] = 0x00;	//ADR
+	buf [index++] = 0x10;	//PKE
+	buf [index++] = 0x00;	//PKE
+	buf [index++] = 0x00;	//Reserved
+	buf [index++] = 0x00;	//IND
+	buf [index++] = 0x00;	//PWE
+	buf [index++] = 0x00;	//PWE
+	buf [index++] = 0x00;	//PWE
+	buf [index++] = 0x00;	//PWE
+	if ( run ){
+		buf [index++] = 0x04;	//PDZ1
+		buf [index++] = 0x01;	//PDZ1
+	} else {
+		buf [index++] = 0x04;	//PDZ1
+		buf [index++] = 0x00;	//PDZ1
+	}
+
+	buf[buf[0x01]] = 0;
+	for(i=0;i<buf[0x01];i++){
+		buf[buf[0x01]] ^= buf[i];
+	}
+
+	vSerialPut( FD110A_Port, buf, buf[0x01]+2 );
+	vTaskDelay( configTICK_RATE_HZ/10 );
+	//vSerialPut( FD110A_Port, buf, 4);
+}
 
 int32_t mpump_td400_task()
 {
+	static sTIMEOUT sto_500ms;
 	static uint8_t buf[64];
 	static int32_t rx_len=0;
+	uint32_t ret;
 	int32_t i;
-	//uint8_t xor;
 	static uint32_t task = 0;
 	static uint8_t sum = 0;
+	uint8_t rx;
+
+	if ( (ret = get_timeout(&sto_500ms)) == TO_TIMEOUT) {
+		start_timeout(&sto_500ms,500);
+
+		mpump_td400_ctl(sMPump.status );
+	}  else if ( ret != TO_RUNING ){
+		start_timeout(&sto_500ms,500);
+	}
 
 	if ( xSerialIsArrive(FD110A_Port) == pdFALSE )
 		return 0;
@@ -408,59 +462,53 @@ int32_t mpump_td400_task()
 	if ( rx_len + 24 > sizeof(buf) )
 		rx_len = 0;
 
-	for ( i=0; rx_len-i>=11; i++ ){
-		if ( xSerialGetChar(FD110A_Port,buf+rx_len,configTICK_RATE_HZ/1000) == pdFALSE )
+	for ( i=0; i<10; i++ ){
+		if ( xSerialGetChar(FD110A_Port,&rx,configTICK_RATE_HZ/1000) == pdFALSE )
 			break;
-		if ( buf[rx_len] == 0x02 )
-			rx_len = 0;
-		else if {
-			rx_len ++;
-			sum ^= buf[rx_len];
-			switch( task ){
-			case 0:	//STX
-				if ( buf[rx_len] == 0x02 ) { task ++; sum = 0; break;
-			case 1: //LGE
-				if ( buf[rx_len] ==   22 ) {
-					task ++;
-				} else {
-					task = 0; rx_len = 0;
-				}
-				break;
-			case 2: //ADR
-				if ( buf[rx_len] == 0 /*|| buf[rx_len] == TD400_ADDRESS*/) {
-					task ++;
-				} else {
-					task = 0; rx_len = 0;
-				}
-			case 3:
-				if ( rx_len >= 23 ) {
-					if ( sum ) break;
-					sMPump.freq 	= ((uint16_t)buf[13]<<8) | buf[14];
-					sMPump.voltage  = ((uint16_t)buf[21]<<8) | buf[22];
-					sMPump.current  = ((uint16_t)buf[17]<<8) | buf[18];
-					sMPump.temperature = ((uint16_t)buf[15]<<8) | buf[16];
-				}
-				break;
-			default:
-				task = 0;
-				rx_len = 0;
-				break;
-			}
-		if ( buf[i] == 0xAB && buf[i+1] == 0x91 && buf[i+2] == 0x07 ){
-			//for(xor=0,j=1;j<buf[i+2]+2;j++)
-			//	xor ^= buf[i+j];
-			//if ( xor != buf[10] ){
-			//	rx_len = 0;
-			//	return 0;
-			//}
 
-			eMBRegInput_Write(MB_MPUMP_ST	,buf[i+3]);//添加低8位状态
-			eMBRegInput_Write(MB_MPUMP_FREQ	,buf[i+4]*100 + buf[i+5]);
-			eMBRegInput_Write(MB_MPUMP_VOL	,buf[i+6]*100 + buf[i+7]);
-			eMBRegInput_Write(MB_MPUMP_CUR	,buf[i+8]*100 + buf[i+9]);
-			if ( eMBRegInput_Read(MB_MPUMP_FREQ) > 999 )
-				eMBRegInput_Write(MB_MPUMP_FREQ,999);
-			rx_len = 0;
+		switch( task ){
+		case 0:	//STX
+			if ( rx == 0x02 ) {
+				rx_len = 0; 
+				buf[rx_len++] = rx;
+				task ++; 
+				sum = 0; 
+			}
+			break;
+		case 1: //LGE
+			buf[rx_len++] = rx;
+			if (  rx == 22 ) {
+				task ++;
+			} else {
+				task = 0; 
+				rx_len = 0;
+			}
+			break;
+		case 2: //ADR
+			buf[rx_len++] = rx;
+			if ( rx == 0 /*|| buf[rx_len] == TD400_ADDRESS*/) {
+				task ++;
+			} else {
+				task = 0; rx_len = 0;
+			}
+			break;
+		case 3:
+			buf[rx_len++] = rx;
+			if ( rx_len >= 23 ) {
+				//if ( xor ) break;
+				sMPump.freq 	= ((uint16_t)buf[13]<<8) | buf[14];
+				sMPump.voltage  = ((uint16_t)buf[21]<<8) | buf[22];
+				sMPump.current  = ((uint16_t)buf[17]<<8) | buf[18];
+				sMPump.temperature = ((uint16_t)buf[15]<<8) | buf[16];
+				eMBRegInput_Write(MB_MPUMP_ST	,buf[i+3]);//添加低8位状态
+				eMBRegInput_Write(MB_MPUMP_FREQ	,sMPump.freq);
+				eMBRegInput_Write(MB_MPUMP_VOL	,sMPump.voltage);
+				eMBRegInput_Write(MB_MPUMP_CUR	,sMPump.current);
+				task = 0;
+			}
+			break;
+		default:
+			task = 0;
 			break;
 		}
 	}
@@ -481,7 +529,8 @@ void mpump_init(void)
 	eMBRegHolding_Write( MB_VMETER_SET0	,(((uint8_t*)&vmeter_set0)[0]<<8)|(((uint8_t*)&vmeter_set0)[1]));
 	eMBRegHolding_Write( MB_VMETER_SET1	,(((uint8_t*)&vmeter_set0)[2]<<8)|(((uint8_t*)&vmeter_set0)[3]));
   
-	FD110A_Port = xSerialPortInit( serCOM2, ser4800, serNO_PARITY, serBITS_8, serSTOP_1, 256 );
+//	FD110A_Port = xSerialPortInit( serCOM2, ser4800, serNO_PARITY, serBITS_8, serSTOP_1, 256 );
+	FD110A_Port = xSerialPortInit( serCOM2, ser19200, serEVEN_PARITY, serBITS_9, serSTOP_1, 256 );
 	mpump_ctl(POWER_OFF | MPUMP_STOP);
 	DIO_Write( PWR_3, pdHIGH );		//关闭TD400分子泵，X1-PIN8	
 }
@@ -495,7 +544,8 @@ int32_t mpump_ctl( uint16_t cmd )
 		//int32_t temp;
 		reg = eMBRegInput_Read(MB_MPUMP_ST) & ~MPUMP_RUN;
 		eMBRegInput_Write( MB_MPUMP_ST	,reg);
-		mpump_ctl_from_com(FD110A_STOP);
+		//mpump_ctl_from_com(FD110A_STOP);
+		mpump_td400_ctl(sMPump.status=0);
 
 		//如果分子泵还有转速，则不可关闭！
 		if ( eMBRegInput_Read( MB_MPUMP_FREQ ) )
@@ -520,11 +570,11 @@ int32_t mpump_ctl( uint16_t cmd )
 	
 	reg = eMBRegInput_Read(MB_MPUMP_ST);
 	if ( cmd & MPUMP_LOW_SP ) {
-		mpump_ctl_from_com(FD110A_LOW_SP);
+		//mpump_ctl_from_com(FD110A_LOW_SP);
 		eMBRegInput_Write(MB_MPUMP_ST,(reg & ~MPUMP_HIGH_SP));
 		eMBRegInput_Write(MB_MPUMP_ST,(reg | MPUMP_LOW_SP));
 	} else if ( cmd & MPUMP_HIGH_SP ) {
-		mpump_ctl_from_com(FD110A_HIGH_SP);
+		//mpump_ctl_from_com(FD110A_HIGH_SP);
 		eMBRegInput_Write(MB_MPUMP_ST, (reg & ~MPUMP_LOW_SP));
 		eMBRegInput_Write(MB_MPUMP_ST, (reg | MPUMP_HIGH_SP));
 	} 
@@ -534,7 +584,8 @@ int32_t mpump_ctl( uint16_t cmd )
 		//if ( hvsl.vol_fb > 1000 || hvsr.vol_fb > 1000 )
 		//	return -2;
 
-		mpump_ctl_from_com(FD110A_STOP);
+		//mpump_ctl_from_com(FD110A_STOP);
+		mpump_td400_ctl(sMPump.status=0);
 		eMBRegInput_Write(MB_MPUMP_ST,( reg & ~MPUMP_RUN));
 	} else if ( cmd & MPUMP_RUN ) {
 		//真空度达不到8.0e0，则不可以开启分子泵
@@ -547,7 +598,8 @@ int32_t mpump_ctl( uint16_t cmd )
 			return -4;
 		}
 		
-		mpump_ctl_from_com(FD110A_START);
+		//mpump_ctl_from_com(FD110A_START);
+		mpump_td400_ctl(sMPump.status=1);
 		eMBRegInput_Write(MB_MPUMP_ST, (reg | MPUMP_RUN));
 		DIO_Write( PWR_3, pdLOW );//开启TD400分子泵，X1-PIN8
 	} 
@@ -650,14 +702,6 @@ int32_t auto_ctl_task(void)
 			}
 			break;
 		case 2:
-			mpump_ctl( MPUMP_PWR_OFF | MPUMP_STOP );
-			auto_st ++;
-			break;
-		case 3:
-			if ( eMBRegInput_Read(MB_MPUMP_FREQ) < eMBRegHolding_Read(MB_MPUMP_PWR_OFF_FREQ) )
-				auto_st ++;
-			break;
-		case 4:
 			//关闭机械泵之前先关闭真空计
 			vmeter_ctl(VMETER_PWR_OFF);
 
@@ -665,19 +709,38 @@ int32_t auto_ctl_task(void)
 //			start_timeout(&vmeter_to,5*60*1000);
 			auto_st ++;
 			break;
-		case 5:
+		case 3:
 			if ( get_timeout(&vmeter_to) == TO_TIMEOUT ) {
 				vmeter_ctl(VMETER_PWR_OFF);
 				//真空计关闭一段时间后关闭机械泵
 				DIO_Write( RELAY_POWERPUMP, DO_RELAY_OFF );
 				eMBRegInput_Write(MB_POWERPUMP_ST,POWERPUMP_PWR_OFF);
 				auto_st ++;
-		DIO_Write(RELAY0,DO_RELAY_OFF);
-		DIO_Write(RELAY1,DO_RELAY_OFF);
-		eMBRegInput_Write(MB_MOTOR_ST, eMBRegInput_Read(MB_MOTOR_ST) & ~MOTOR_ENABLE );
+				DIO_Write(RELAY0,DO_RELAY_OFF);
+				DIO_Write(RELAY1,DO_RELAY_OFF);
+				eMBRegInput_Write(MB_MOTOR_ST, eMBRegInput_Read(MB_MOTOR_ST) & ~MOTOR_ENABLE );
 			}
-			break;		
+			break;
+		case 4:
+			mpump_ctl( MPUMP_PWR_OFF | MPUMP_STOP );
+			auto_st ++;
+			timer = 0;
+			break;
+		case 5:
+			if ( time ++ > 10 ){
+				PWM_DAC_SetmV( HVL_CUR_DAC_CH, 2048 );//开比例阀
+				PWM_DAC_SetmV( HVR_CUR_DAC_CH, 2048 );//开比例阀
+			} else if ( time > 20 ){
+				PWM_DAC_SetmV( HVL_CUR_DAC_CH, 0 );//关比例阀
+				PWM_DAC_SetmV( HVR_CUR_DAC_CH, 0 );//关比例阀
+				task ++;
+			}
+			break;
 		case 6:
+			if ( eMBRegInput_Read(MB_MPUMP_FREQ) < eMBRegHolding_Read(MB_MPUMP_PWR_OFF_FREQ) )
+				auto_st ++;
+			break;
+		case 7:
 			reg &= ~SYS_AUTO_OFF;
 			auto_st = 0x0F;
 			break;
@@ -1290,6 +1353,7 @@ int32_t gl_696h_init()
 
 void vGL696H_Task( void *pvParameters )
 {
+	static sTIMEOUT sec_to;
 	uint32_t i=0,j,motor = 0;
 	uint32_t sec=0;
 	uint32_t ret;
@@ -1319,6 +1383,7 @@ void vGL696H_Task( void *pvParameters )
 		hv_cur_task(&hvsr);
 
 		vmeter_task();
+		mpump_td400_task();
 		
 		if ( (system_tick%100) == 0 ){
 			hv_update_cur(&hvsl);
@@ -1332,11 +1397,6 @@ void vGL696H_Task( void *pvParameters )
 			
 			//----------自动控制---------------------------------------------------------------
 			auto_ctl_task();
-				
-			mpump_task();
-			if ( (sec % 2) == 0 ) {
-				mpump_ctl_from_com(FD110A_STATUS);
-			} 
 			
 			if ( (sec % 60 ) == 0 ){
 				i = eMBRegInput_Read(MB_MOTOR_ST);

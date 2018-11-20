@@ -78,6 +78,7 @@ typedef struct _MPUMP_
 	unsigned short voltage;
 	unsigned short current;
 	unsigned short alarm;
+	unsigned short temperature;
 } sMPUMP,*psMPUP;
 
 extern HVS hvsr;
