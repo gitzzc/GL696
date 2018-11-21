@@ -65,7 +65,7 @@
 #define RELAY_SAMPLE_LED1 	RELAY14
 
 //#define OLD_HV_POWER
-#define NEW_LED_TYPE_POWER
+//#define NEW_LED_TYPE_POWER
 
 //--------------------------------------------------
 HVS hvsr;
@@ -500,7 +500,6 @@ int32_t mpump_td400_task()
 				sMPump.voltage  = ((uint16_t)buf[21]<<8) | buf[22];
 				sMPump.current  = ((uint16_t)buf[17]<<8) | buf[18];
 				sMPump.temperature = ((uint16_t)buf[15]<<8) | buf[16];
-				eMBRegInput_Write(MB_MPUMP_ST	,buf[i+3]);//添加低8位状态
 				eMBRegInput_Write(MB_MPUMP_FREQ	,sMPump.freq);
 				eMBRegInput_Write(MB_MPUMP_VOL	,sMPump.voltage);
 				eMBRegInput_Write(MB_MPUMP_CUR	,sMPump.current);
@@ -561,7 +560,6 @@ int32_t mpump_ctl( uint16_t cmd )
 			
 		//DIO_Write( MPUMP_RELAY_CH, DO_RELAY_ON );
 		eMBRegInput_Write(MB_MPUMP_ST,MPUMP_PWR_ON);
-		DIO_Write(PWR_3, pdLOW );	//Control MPump on X1-pin8;
 	}
 	
 	if ( (eMBRegInput_Read(MB_MPUMP_ST) & MPUMP_PWR_ON) != MPUMP_PWR_ON )
@@ -725,12 +723,14 @@ int32_t auto_ctl_task(void)
 			timer = 0;
 			break;
 		case 5:
-			if ( timer ++ > 10 ){
-				PWM_DAC_SetmV( HVL_CUR_DAC_CH, 3000 );//开比例阀
-				PWM_DAC_SetmV( HVR_CUR_DAC_CH, 3000 );//开比例阀
-			} else if ( timer > 20 ){
-				PWM_DAC_SetmV( HVL_CUR_DAC_CH, 0 );//关比例阀
-				PWM_DAC_SetmV( HVR_CUR_DAC_CH, 0 );//关比例阀
+			if ( timer ++ == 10 ){
+				//PWM_DAC_SetmV( HVL_CUR_DAC_CH, 3000 );//开比例阀
+				//PWM_DAC_SetmV( HVR_CUR_DAC_CH, 3000 );//开比例阀
+				DIO_Write(RELAY_BLEED_VALVE,DO_RELAY_ON);
+			} else if ( timer >= 15 ){
+				//PWM_DAC_SetmV( HVL_CUR_DAC_CH, 0 );//关比例阀
+				//PWM_DAC_SetmV( HVR_CUR_DAC_CH, 0 );//关比例阀
+				DIO_Write(RELAY_BLEED_VALVE,DO_RELAY_OFF);
 				auto_st ++;
 			}
 			break;
@@ -1161,12 +1161,12 @@ int32_t hv_cur_task(HVS* hvs)
 			hvs->st &= ~HV_CUR_SET_OK;
 
 			if ( hvs->cur_fb < 300 ) { 		//300*0.1uA = 0.03mA
-				step 	 = hvs->cur_step*5;
+				step 	 = hvs->cur_step*10;
 			} else {
 				if ( 		temp > 1000 )	//1000*0.1uA = 0.1mA
-					step 	 = hvs->cur_step * 2;
+					step 	 = hvs->cur_step * 5;
 				else if ( 	temp > 500 )	//1000*0.1uA = 0.05mA
-					step 	 = hvs->cur_step * 1;
+					step 	 = hvs->cur_step * 2;
 				else if ( 	temp > 100 )	//1000*0.1uA = 0.01mA	
 					step 	 = hvs->cur_step * 1;
 				else	
