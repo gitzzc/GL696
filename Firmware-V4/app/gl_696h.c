@@ -143,21 +143,6 @@ void vmeter_set_reg(float v)
 	eMBRegInput_Write(MB_VMETER1,(((uint8_t*)&vmeter)[1]<<8) | ((uint8_t*)&vmeter)[0]);
 }
 
-//真空计电源控制
-int32_t vmeter_ctl(int32_t cmd)
-{
-	if ( cmd & VMETER_PWR_OFF ) {
-		DIO_Write( RELAY_VMETER, DO_RELAY_OFF );
-		eMBRegInput_Write(MB_VMETER_ST,VMETER_PWR_OFF);
-
-		vmeter_set_reg(1.0E3);
-	} else if ( cmd & VMETER_PWR_ON ) {
-		DIO_Write( RELAY_VMETER, DO_RELAY_ON );
-		eMBRegInput_Write(MB_VMETER_ST,VMETER_PWR_ON);
-	}
-	return 0;
-}
-
 static xComPortHandle vmeter_Port = NULL;
 
 void vmeter_init(void)
@@ -254,18 +239,10 @@ void powerpump_init(void)
 int32_t powerpump_ctl(int32_t cmd)
 {
 	if ( cmd & POWER_OFF ) {
-		eMBRegInput_Write(MB_SYS_AUTOCTL_ST,0);
-		eMBRegHolding_Write(MB_SYS_AUTOCTL,SYS_AUTO_OFF);
 
 		DIO_Write(RELAY0,DO_RELAY_OFF);
 		DIO_Write(RELAY1,DO_RELAY_OFF);
-		eMBRegInput_Write(MB_MOTOR_ST, eMBRegInput_Read(MB_MOTOR_ST) & ~MOTOR_ENABLE );
 	} else if ( cmd & POWER_ON ) {
-		eMBRegInput_Write(MB_SYS_AUTOCTL_ST,0);
-		eMBRegHolding_Write(MB_SYS_AUTOCTL,SYS_AUTO_ON);
-
-		eMBRegInput_Write(MB_MOTOR_ST, eMBRegInput_Read(MB_MOTOR_ST) | MOTOR_ENABLE );
-		auto_st_end = 1;
 	}
 	return 0;
 }
@@ -530,59 +507,25 @@ int32_t mpump_ctl( uint16_t cmd )
 	uint16_t reg;
 	
 	if ( cmd & MPUMP_PWR_OFF ){
-		reg = eMBRegInput_Read(MB_MPUMP_ST) & ~MPUMP_RUN;
-		eMBRegInput_Write( MB_MPUMP_ST	,reg);
-		MPumpCtrlFromCom(PUMP_STOP);
-		sMPump.status=0;
-
-		//如果分子泵还有转速，则不可关闭！
-		if ( eMBRegInput_Read( MB_MPUMP_FREQ ) )
-			return -1;
-		
-		eMBRegInput_Write(MB_MPUMP_ST,MPUMP_PWR_OFF);
 		//DIO_Write( MPUMP_RELAY_CH, DO_RELAY_OFF );
 	} else if ( cmd & MPUMP_PWR_ON ) {
-		//如果机械泵还没有上电，则不可以开启分子泵
-		if ( !(eMBRegInput_Read(MB_POWERPUMP_ST) & POWER_ON) ) {
-			return -3;
-		}
-			
 		//DIO_Write( MPUMP_RELAY_CH, DO_RELAY_ON );
-		eMBRegInput_Write(MB_MPUMP_ST,MPUMP_PWR_ON);
 	}
 	
 	if ( (eMBRegInput_Read(MB_MPUMP_ST) & MPUMP_PWR_ON) != MPUMP_PWR_ON )
-		return -5;
+		return -1;
 	
-	reg = eMBRegInput_Read(MB_MPUMP_ST);
 	if ( cmd & MPUMP_LOW_SP ) {
-		//MPumpCtrlFromCom(MPUMP_LOW_SP);
-		eMBRegInput_Write(MB_MPUMP_ST,(reg & ~MPUMP_HIGH_SP) | MPUMP_LOW_SP);
+		MPumpCtrlFromCom(MPUMP_LOW_SP);
 	} else if ( cmd & MPUMP_HIGH_SP ) {
-		//MPumpCtrlFromCom(MPUMP_HIGH_SP);
-		eMBRegInput_Write(MB_MPUMP_ST, (reg & ~MPUMP_LOW_SP) | MPUMP_HIGH_SP);
+		MPumpCtrlFromCom(MPUMP_HIGH_SP);
 	} 
 	
 	if ( cmd & MPUMP_STOP ) {
 		MPumpCtrlFromCom(MPUMP_STOP);
-		sMPump.status=0;
-		eMBRegInput_Write(MB_MPUMP_ST,( reg & ~MPUMP_RUN));
 	} else if ( cmd & MPUMP_RUN ) {
-		//真空度达不到8.0e0，则不可以开启分子泵
-		vmeter_set[0] = eMBRegHolding_Read(MB_VMETER_SET0)>>8;
-		vmeter_set[1] = eMBRegHolding_Read(MB_VMETER_SET0);
-		vmeter_set[2] = eMBRegHolding_Read(MB_VMETER_SET1)>>8;
-		vmeter_set[3] = eMBRegHolding_Read(MB_VMETER_SET1);
-		
-		if ( vmeter > *(float*)vmeter_set ){
-			return -4;
-		}
-		
 		MPumpCtrlFromCom(MPUMP_START);
-		sMPump.status=1;
-		eMBRegInput_Write(MB_MPUMP_ST, (reg | MPUMP_RUN));
 	} 
-
 	return 0;
 }
 
