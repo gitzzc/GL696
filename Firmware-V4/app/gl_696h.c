@@ -433,7 +433,7 @@ void mpump_td400_ctl(uint8_t run)
 	}
 
 	vSerialPut( FD110A_Port, buf, buf[0x01]+2 );
-	vTaskDelay( configTICK_RATE_HZ/10 );
+	vTaskDelay( configTICK_RATE_HZ/2 );
 	//vSerialPut( FD110A_Port, buf, 4);
 }
 
@@ -552,7 +552,6 @@ int32_t mpump_ctl( uint16_t cmd )
 			return -1;
 		
 		eMBRegInput_Write(MB_MPUMP_ST,MPUMP_PWR_OFF);
-		DIO_Write( PWR_3, pdHIGH );		//关闭TD400分子泵，X1-PIN8
 	} else if ( cmd & MPUMP_PWR_ON ) {
 		//如果机械泵还没有上电，则不可以开启分子泵
 		if ( !(eMBRegInput_Read(MB_POWERPUMP_ST) & POWER_ON) ) {
@@ -601,7 +600,6 @@ int32_t mpump_ctl( uint16_t cmd )
 		//mpump_ctl_from_com(FD110A_START);
 		mpump_td400_ctl(sMPump.status=1);
 		eMBRegInput_Write(MB_MPUMP_ST, (reg | MPUMP_RUN));
-		DIO_Write( PWR_3, pdLOW );//开启TD400分子泵，X1-PIN8
 	} 
 
 	return 0;
@@ -645,7 +643,7 @@ int32_t auto_ctl_task(void)
 				auto_st++;
 			break;
 		case 3:
-			//if ( mpump_ctl(MPUMP_HIGH_SP) == 0 )
+			if ( mpump_ctl(MPUMP_RUN|MPUMP_PWR_ON|MPUMP_HIGH_SP) == 0 )
 				auto_st++;
 			break;
 		case 4:
@@ -727,13 +725,13 @@ int32_t auto_ctl_task(void)
 			timer = 0;
 			break;
 		case 5:
-			if ( time ++ > 10 ){
-				PWM_DAC_SetmV( HVL_CUR_DAC_CH, 2048 );//开比例阀
-				PWM_DAC_SetmV( HVR_CUR_DAC_CH, 2048 );//开比例阀
-			} else if ( time > 20 ){
+			if ( timer ++ > 10 ){
+				PWM_DAC_SetmV( HVL_CUR_DAC_CH, 3000 );//开比例阀
+				PWM_DAC_SetmV( HVR_CUR_DAC_CH, 3000 );//开比例阀
+			} else if ( timer > 20 ){
 				PWM_DAC_SetmV( HVL_CUR_DAC_CH, 0 );//关比例阀
 				PWM_DAC_SetmV( HVR_CUR_DAC_CH, 0 );//关比例阀
-				task ++;
+				auto_st ++;
 			}
 			break;
 		case 6:
