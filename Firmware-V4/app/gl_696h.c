@@ -19,13 +19,14 @@
 #include "modbus.h"
 //#include "gsm.h"
 
+#define MPUMP_TD400
 //----------------------------------------------------------------
-#define MPUMP_HEAD			0x80
-#define MPUMP_STOP			0x80
-#define MPUMP_START		0x81
-#define MPUMP_LOW_SP		0x82
-#define MPUMP_HIGH_SP		0x83
-#define MPUMP_STATUS		0x84
+#define FD110A_HEAD			0x80
+#define FD110A_STOP			0x80
+#define FD110A_START		0x81
+#define FD110A_LOW_SP		0x82
+#define FD110A_HIGH_SP		0x83
+#define FD110A_STATUS		0x84
 
 #define HVR				'R'
 #define HVL				'L'
@@ -65,7 +66,7 @@
 #define RELAY_SAMPLE_LED1 	RELAY14
 
 //#define OLD_HV_POWER
-#define NEW_LED_TYPE_POWER
+//#define NEW_LED_TYPE_POWER
 
 //--------------------------------------------------
 HVS hvsr;
@@ -244,8 +245,6 @@ int32_t vmeter_task()
 void powerpump_init(void)
 {
 	eMBRegInput_Write(MB_POWERPUMP_ST,POWERPUMP_PWR_OFF);
-	DIO_Write(RELAY_POWERPUMP,DO_RELAY_OFF);
-
 	DIO_Write(RELAY0,DO_RELAY_OFF);
 	DIO_Write(RELAY1,DO_RELAY_OFF);
 	eMBRegInput_Write(MB_MOTOR_ST, 0 );
@@ -254,16 +253,18 @@ void powerpump_init(void)
 int32_t powerpump_ctl(int32_t cmd)
 {
 	if ( cmd & POWER_OFF ) {
-		eMBRegInput_Write(MB_SYS_AUTOCTL_ST,0);
-		eMBRegHolding_Write(MB_SYS_AUTOCTL,SYS_AUTO_OFF);
-
+		DIO_Write( RELAY_POWERPUMP, DO_RELAY_OFF );
+		eMBRegInput_Write(MB_POWERPUMP_ST,POWERPUMP_PWR_OFF);
+//		eMBRegInput_Write(MB_SYS_AUTOCTL_ST,0);
+//		eMBRegHolding_Write(MB_SYS_AUTOCTL,SYS_AUTO_OFF);
 		DIO_Write(RELAY0,DO_RELAY_OFF);
 		DIO_Write(RELAY1,DO_RELAY_OFF);
 		eMBRegInput_Write(MB_MOTOR_ST, eMBRegInput_Read(MB_MOTOR_ST) & ~MOTOR_ENABLE );
 	} else if ( cmd & POWER_ON ) {
-		eMBRegInput_Write(MB_SYS_AUTOCTL_ST,0);
-		eMBRegHolding_Write(MB_SYS_AUTOCTL,SYS_AUTO_ON);
-
+		DIO_Write( RELAY_POWERPUMP, DO_RELAY_ON );
+		eMBRegInput_Write(MB_POWERPUMP_ST,POWERPUMP_PWR_ON);
+//		eMBRegInput_Write(MB_SYS_AUTOCTL_ST,0);
+//		eMBRegHolding_Write(MB_SYS_AUTOCTL,SYS_AUTO_ON);
 		eMBRegInput_Write(MB_MOTOR_ST, eMBRegInput_Read(MB_MOTOR_ST) | MOTOR_ENABLE );
 		auto_st_end = 1;
 	}
@@ -347,12 +348,12 @@ void MPumpCtrlFromCom(int32_t cmd)
 {
 #ifdef MPUMP_TD400
 	uint8_t buf[32];
-	uint32_t index = 0;
+	uint32_t index = 0,i;
 	static uint32_t run=0;
 
-	if ( cmd == START ){
+	if ( cmd == FD110A_START ){
 		run = 1;
-	} else if ( cmd == STOP ){
+	} else if ( cmd == FD110A_STOP ){
 		run = 0;
 	}
 
@@ -409,7 +410,7 @@ int32_t mpump_task()
 	if ( (ret = get_timeout(&sto_500ms)) == TO_TIMEOUT) {
 		start_timeout(&sto_500ms,500);
 
-		MPumpCtrlFromCom(MPUMP_STATUS);
+		MPumpCtrlFromCom(FD110A_STATUS);
 	}  else if ( ret != TO_RUNING ){
 		start_timeout(&sto_500ms,500);
 	}
@@ -460,7 +461,6 @@ int32_t mpump_task()
 				sMPump.voltage  = ((uint16_t)buf[21]<<8) | buf[22];
 				sMPump.current  = ((uint16_t)buf[17]<<8) | buf[18];
 				sMPump.temperature = ((uint16_t)buf[15]<<8) | buf[16];
-				eMBRegInput_Write(MB_MPUMP_ST	,buf[i+3]);//添加低8位状态
 				eMBRegInput_Write(MB_MPUMP_FREQ	,sMPump.freq);
 				eMBRegInput_Write(MB_MPUMP_VOL	,sMPump.voltage);
 				eMBRegInput_Write(MB_MPUMP_CUR	,sMPump.current);
@@ -532,7 +532,7 @@ int32_t mpump_ctl( uint16_t cmd )
 	if ( cmd & MPUMP_PWR_OFF ){
 		reg = eMBRegInput_Read(MB_MPUMP_ST) & ~MPUMP_RUN;
 		eMBRegInput_Write( MB_MPUMP_ST	,reg);
-		MPumpCtrlFromCom(PUMP_STOP);
+		MPumpCtrlFromCom(FD110A_STOP);
 		sMPump.status=0;
 
 		//如果分子泵还有转速，则不可关闭！
@@ -556,15 +556,15 @@ int32_t mpump_ctl( uint16_t cmd )
 	
 	reg = eMBRegInput_Read(MB_MPUMP_ST);
 	if ( cmd & MPUMP_LOW_SP ) {
-		//MPumpCtrlFromCom(MPUMP_LOW_SP);
+		MPumpCtrlFromCom(FD110A_LOW_SP);
 		eMBRegInput_Write(MB_MPUMP_ST,(reg & ~MPUMP_HIGH_SP) | MPUMP_LOW_SP);
 	} else if ( cmd & MPUMP_HIGH_SP ) {
-		//MPumpCtrlFromCom(MPUMP_HIGH_SP);
+		MPumpCtrlFromCom(FD110A_HIGH_SP);
 		eMBRegInput_Write(MB_MPUMP_ST, (reg & ~MPUMP_LOW_SP) | MPUMP_HIGH_SP);
 	} 
 	
 	if ( cmd & MPUMP_STOP ) {
-		MPumpCtrlFromCom(MPUMP_STOP);
+		MPumpCtrlFromCom(FD110A_STOP);
 		sMPump.status=0;
 		eMBRegInput_Write(MB_MPUMP_ST,( reg & ~MPUMP_RUN));
 	} else if ( cmd & MPUMP_RUN ) {
@@ -578,7 +578,7 @@ int32_t mpump_ctl( uint16_t cmd )
 			return -4;
 		}
 		
-		MPumpCtrlFromCom(MPUMP_START);
+		MPumpCtrlFromCom(FD110A_START);
 		sMPump.status=1;
 		eMBRegInput_Write(MB_MPUMP_ST, (reg | MPUMP_RUN));
 	} 
@@ -622,7 +622,7 @@ int32_t auto_ctl_task(void)
 				auto_st++;
 			break;
 		case 3:
-			//if ( mpump_ctl(MPUMP_HIGH_SP) == 0 )
+			if ( mpump_ctl(MPUMP_RUN|MPUMP_PWR_ON|MPUMP_HIGH_SP) == 0 )
 				auto_st++;
 			break;
 		case 4:
@@ -678,6 +678,7 @@ int32_t auto_ctl_task(void)
 				auto_st ++;
 			}
 			break;
+#ifdef MPUMP_TD400
 		case 2:
 			//关闭机械泵之前先关闭真空计
 			vmeter_ctl(VMETER_PWR_OFF);
@@ -704,13 +705,15 @@ int32_t auto_ctl_task(void)
 			timer = 0;
 			break;
 		case 5:
-			if ( time ++ > 10 ){
-				PWM_DAC_SetmV( HVL_CUR_DAC_CH, 2048 );//开比例阀
-				PWM_DAC_SetmV( HVR_CUR_DAC_CH, 2048 );//开比例阀
-			} else if ( time > 20 ){
-				PWM_DAC_SetmV( HVL_CUR_DAC_CH, 0 );//关比例阀
-				PWM_DAC_SetmV( HVR_CUR_DAC_CH, 0 );//关比例阀
-				task ++;
+			if ( timer ++ == 10 ){
+				//PWM_DAC_SetmV( HVL_CUR_DAC_CH, 3000 );//开比例阀
+				//PWM_DAC_SetmV( HVR_CUR_DAC_CH, 3000 );//开比例阀
+				DIO_Write(RELAY_BLEED_VALVE,DO_RELAY_ON);
+			} else if ( timer >= 15 ){
+				//PWM_DAC_SetmV( HVL_CUR_DAC_CH, 0 );//关比例阀
+				//PWM_DAC_SetmV( HVR_CUR_DAC_CH, 0 );//关比例阀
+				DIO_Write(RELAY_BLEED_VALVE,DO_RELAY_OFF);
+				auto_st ++;
 			}
 			break;
 		case 6:
@@ -721,6 +724,40 @@ int32_t auto_ctl_task(void)
 			reg &= ~SYS_AUTO_OFF;
 			auto_st = 0x0F;
 			break;
+#else
+		case 2:
+			mpump_ctl( MPUMP_PWR_OFF | MPUMP_STOP );
+			auto_st ++;
+			break;
+		case 3:
+			if ( eMBRegInput_Read(MB_MPUMP_FREQ) < eMBRegHolding_Read(MB_MPUMP_PWR_OFF_FREQ) )
+				auto_st ++;
+			break;
+		case 4:
+			//关闭机械泵之前先关闭真空计
+			vmeter_ctl(VMETER_PWR_OFF);
+
+			start_timeout(&vmeter_to,eMBRegHolding_Read(VMETER_STOP_DELAY));
+//			start_timeout(&vmeter_to,5*60*1000);
+			auto_st ++;
+			break;
+		case 5:
+			if ( get_timeout(&vmeter_to) == TO_TIMEOUT ) {
+				vmeter_ctl(VMETER_PWR_OFF);
+				//真空计关闭一段时间后关闭机械泵
+				DIO_Write( RELAY_POWERPUMP, DO_RELAY_OFF );
+				eMBRegInput_Write(MB_POWERPUMP_ST,POWERPUMP_PWR_OFF);
+				auto_st ++;
+		DIO_Write(RELAY0,DO_RELAY_OFF);
+		DIO_Write(RELAY1,DO_RELAY_OFF);
+		eMBRegInput_Write(MB_MOTOR_ST, eMBRegInput_Read(MB_MOTOR_ST) & ~MOTOR_ENABLE );
+			}
+			break;
+		case 6:
+			reg &= ~SYS_AUTO_OFF;
+			auto_st = 0x0F;
+			break;
+#endif
 		default :
 			auto_st = 0;
 			break;
@@ -1140,12 +1177,12 @@ int32_t hv_cur_task(HVS* hvs)
 			hvs->st &= ~HV_CUR_SET_OK;
 
 			if ( hvs->cur_fb < 300 ) { 		//300*0.1uA = 0.03mA
-				step 	 = hvs->cur_step*5;
+				step 	 = hvs->cur_step*10;
 			} else {
 				if ( 		temp > 1000 )	//1000*0.1uA = 0.1mA
-					step 	 = hvs->cur_step * 2;
+					step 	 = hvs->cur_step * 5;
 				else if ( 	temp > 500 )	//1000*0.1uA = 0.05mA
-					step 	 = hvs->cur_step * 1;
+					step 	 = hvs->cur_step * 2;
 				else if ( 	temp > 100 )	//1000*0.1uA = 0.01mA	
 					step 	 = hvs->cur_step * 1;
 				else	
@@ -1360,7 +1397,7 @@ void vGL696H_Task( void *pvParameters )
 		hv_cur_task(&hvsr);
 
 		vmeter_task();
-		mpump_td400_task();
+		mpump_task();
 		
 		if ( (system_tick%100) == 0 ){
 			hv_update_cur(&hvsl);
