@@ -1,0 +1,307 @@
+/* Standard includes. */
+#include <stdio.h>
+
+/* Scheduler includes. */
+#include "FreeRTOS.h"
+#include "task.h"
+#include "queue.h"
+
+/* Library includes. */
+#include "stm32f10x_it.h"
+#include "stm32f10x_spi.h"
+#include "stm32f10x_nvic.h"
+#include "stm32f10x_gpio.h"
+#include "stm32f10x_rcc.h"
+
+/* Library includes. */
+#include "stm32f10x_lib.h"
+
+#include "Calibrate.h"
+#include "touchscreen.h"
+#include "LCD_Message.h"
+#include "lcd.h"
+
+/*-----------------------------------------------------------*/
+#define TC_MAX_VALUE	((1<<12)-1)
+
+#define PEN_DOWN_DELAY		10
+#define PEN_SAMPLE_DELAY	50
+
+#define AD7843_CS		GPIO_Pin_1	//PA.01	
+#define AD7843_PENIRQ	GPIO_Pin_4	//PA.04	
+#define AD7843_BUSY		GPIO_Pin_13	//PB.13	
+
+#define AD7843_CS_EN()	GPIO_WriteBit(GPIOA, AD7843_CS, Bit_RESET)
+#define AD7843_CS_DIS()	GPIO_WriteBit(GPIOA, AD7843_CS, Bit_SET)
+
+/*-----------------------------------------------------------*/
+
+xQueueHandle xTCQueue;
+xTaskHandle xTCTaskHandle;
+xSemaphoreHandle xSPISemaphore;
+xQueueHandle xHIDQueue;
+MATRIX TC_Matrix;
+
+/*-----------------------------------------------------------*/
+
+void AD7843_Config_SPI(void)
+{
+	SPI_InitTypeDef    SPI_InitStructure;
+	GPIO_InitTypeDef   GPIO_InitStructure;
+	
+	/* Enable GPIOA clock */
+	RCC_APB2PeriphClockCmd( RCC_APB2Periph_GPIOA, ENABLE);
+	
+	/* Configure SPI1 pins: SCK, MISO and MOSI */
+	GPIO_InitStructure.GPIO_Pin 	= GPIO_Pin_5 | GPIO_Pin_6 | GPIO_Pin_7;
+	GPIO_InitStructure.GPIO_Speed 	= GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Mode 	= GPIO_Mode_AF_PP;
+	GPIO_Init(GPIOA, &GPIO_InitStructure);
+	
+	/* SPI1 disable */
+	SPI_Cmd(SPI1, DISABLE);
+	
+	/* Enable SPI1 clock  */
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_SPI1, ENABLE);
+	
+	/* SPI1 Config */
+	SPI_InitStructure.SPI_Direction = SPI_Direction_2Lines_FullDuplex;
+	SPI_InitStructure.SPI_Mode 		= SPI_Mode_Master;
+	SPI_InitStructure.SPI_DataSize 	= SPI_DataSize_8b;
+	SPI_InitStructure.SPI_CPOL 		= SPI_CPOL_Low;
+	SPI_InitStructure.SPI_CPHA 		= SPI_CPHA_1Edge;
+	SPI_InitStructure.SPI_NSS 		= SPI_NSS_Soft;
+	SPI_InitStructure.SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_16;
+	SPI_InitStructure.SPI_FirstBit 	= SPI_FirstBit_MSB;
+	SPI_InitStructure.SPI_CRCPolynomial = 7;
+	SPI_Init(SPI1, &SPI_InitStructure);
+	
+	/* SPI1 enable */
+	SPI_Cmd(SPI1, ENABLE);
+}
+
+void AD7843_Config_INT()
+{
+	GPIO_InitTypeDef GPIO_InitStructure;
+	EXTI_InitTypeDef EXTI_InitStructure;
+	NVIC_InitTypeDef NVIC_InitStructure;
+	
+	/* Enable the Clock */
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_AFIO, ENABLE);
+
+	/* Configure PENIRQ (PA.04) in Input mode */
+	GPIO_InitStructure.GPIO_Pin 	= AD7843_PENIRQ;
+	GPIO_InitStructure.GPIO_Speed 	= GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Mode	= GPIO_Mode_IPU;
+	GPIO_Init(GPIOA, &GPIO_InitStructure);
+	
+	/* Connect EXTI Line to GPIO Pin */
+	GPIO_EXTILineConfig(GPIO_PortSourceGPIOA, AD7843_PENIRQ);
+	
+	/* Configure EXTI line */
+	EXTI_InitStructure.EXTI_Line	= EXTI_Line4;
+	EXTI_InitStructure.EXTI_Mode 	= EXTI_Mode_Interrupt;
+	EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising_Falling;  
+	EXTI_InitStructure.EXTI_LineCmd = ENABLE;
+	EXTI_Init(&EXTI_InitStructure);
+	
+	/* Enable and set EXTI Interrupt to the lowest priority */
+	NVIC_InitStructure.NVIC_IRQChannel = EXTI4_IRQChannel;
+	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0x0F;
+	NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0x0F;
+	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+	
+	NVIC_Init(&NVIC_InitStructure); 
+}
+
+void AD7843_Enable_INT()
+{
+	EXTI_InitTypeDef EXTI_InitStructure;
+
+	/* Configure EXTI line */
+	EXTI_InitStructure.EXTI_Line	= EXTI_Line4;
+	EXTI_InitStructure.EXTI_Mode 	= EXTI_Mode_Interrupt;
+	EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising_Falling;  
+	EXTI_InitStructure.EXTI_LineCmd = ENABLE;
+	EXTI_Init(&EXTI_InitStructure);
+}
+
+void AD7843_Disable_INT()
+{
+	EXTI_InitTypeDef EXTI_InitStructure;
+
+	/* Configure EXTI line */
+	EXTI_InitStructure.EXTI_Line	= EXTI_Line4;
+	EXTI_InitStructure.EXTI_Mode 	= EXTI_Mode_Interrupt;
+	EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising_Falling;  
+	EXTI_InitStructure.EXTI_LineCmd = DISABLE;
+	EXTI_Init(&EXTI_InitStructure);
+}
+
+void AD7843_Init(void)
+{
+	GPIO_InitTypeDef GPIO_InitStructure;
+
+	/* Enable the Clock */
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_AFIO, ENABLE);
+
+	/* Configure CS (PA.01) in Output Push-Pull mode */
+	GPIO_InitStructure.GPIO_Pin 	= AD7843_CS;
+	GPIO_InitStructure.GPIO_Speed 	= GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Mode	= GPIO_Mode_Out_PP;
+	GPIO_Init(GPIOA, &GPIO_InitStructure);
+
+	/* Configure AD7843_BUSY (PB.13) in Input Push-Pull mode */
+	GPIO_InitStructure.GPIO_Pin 	= AD7843_BUSY;
+	GPIO_InitStructure.GPIO_Speed 	= GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Mode 	= GPIO_Mode_IPU;
+	GPIO_Init(GPIOB, &GPIO_InitStructure);
+	
+	AD7843_CS_DIS();
+	AD7843_Config_INT();
+	AD7843_Config_SPI();
+}
+
+u16 AD7843_Read(u8 cmd)
+{
+	vu32 i;
+	u16 ret;
+	
+	xSemaphoreTake( xSPISemaphore, portMAX_DELAY );	
+	
+	AD7843_Config_SPI();
+	
+	AD7843_CS_EN();
+	for(i=0;i<1000;i++);
+	
+	spi_write (cmd);
+	for(i=0;i<10000;i++);
+	spi_write (0x00);
+	ret = SPI_ReceiveData (SPI1);
+	
+	for(i=0;i<1000;i++);
+	spi_write (0x00);	
+	ret = SPI_ReceiveData (SPI1) | (ret << 8);
+	
+	AD7843_CS_DIS();
+
+	xSemaphoreGive( xSPISemaphore );	
+
+	return ret;
+}
+
+
+void TCGetXY(xHIDMessage* tc)
+{
+	u16 tmp,max_x=0,min_x=0,max_y=0,min_y=0;
+	u32 x=0,y=0,i;
+	
+	for(i=0;i<10;i++){
+		//NO power-down		
+		tmp = AD7843_Read(0x80|(0x05<<4)|0x03)>>3>>2;
+		//tc->x = tmp * TC_X_FACTOR;
+		if ( i > 3 ){
+			if ( tmp > max_x )
+				max_x = tmp;
+			else if ( tmp < min_x )
+				min_x = tmp;
+			x += tmp;
+		}
+	}		
+	
+	for(i=0;i<10;i++){
+		tmp = AD7843_Read(0x80|(0x01<<4)|0x03)>>3>>2;
+		//tc->y = tmp * TC_Y_FACTOR;
+		if ( i > 3 ){
+			if ( tmp > max_y )
+				max_y = tmp;
+			else if ( tmp < min_y )
+				min_y = tmp;
+			y += tmp;
+			//return ;
+		}
+	}
+	//enter power-down
+	AD7843_Read(0x80|(0x01<<4)) ;
+	
+	tc->raw_x = (x-max_x-min_x)/6;
+	tc->raw_y = (y-max_y-min_y)/6;
+}
+
+
+void vTouchTask( void *pvParameters )
+{
+	portBASE_TYPE tc_delay = PEN_DOWN_DELAY;
+	xLCDMessage xLCD_Message;
+	xHIDMessage xtc_Msg;
+	POINT	tc,disp;
+	char str[64];
+	
+	AD7843_Init();
+	AD7843_Read(0x01);//setup PD0-1 
+	
+	for( ;; )
+	{
+		vTaskDelay( tc_delay / portTICK_RATE_MS );
+		if ( !(GPIOA->IDR & AD7843_PENIRQ) ){
+				
+			TCGetXY(&xtc_Msg);
+			
+			tc.x = xtc_Msg.raw_x;
+			tc.y = xtc_Msg.raw_y;
+			getDisplayPoint(&disp,&tc,&TC_Matrix);
+			if ( disp.x > LCD_SCR_WIDTH )
+				disp.x = LCD_SCR_WIDTH;
+			else if ( disp.x < 0 )
+				disp.x = 0;
+			if ( disp.y > LCD_SCR_HIGH )
+				disp.y = LCD_SCR_HIGH;
+			else if ( disp.y < 0 )
+				disp.y = 0;
+				
+			xtc_Msg.type	 = HID_TOUCHSCEEN;
+			if ( xtc_Msg.pressure == HID_DOWN )
+				xtc_Msg.pressure = HID_FLEETING;
+			else if ( xtc_Msg.pressure == HID_UP )
+				xtc_Msg.pressure = HID_DOWN;
+			xtc_Msg.x 		 = disp.x;
+			xtc_Msg.y 		 = disp.y;
+						
+			xQueueSend( xHIDQueue, &xtc_Msg, 10/portTICK_RATE_MS );
+			
+			tc_delay = PEN_SAMPLE_DELAY;
+		} else {
+			xtc_Msg.type	 = HID_TOUCHSCEEN;
+			xtc_Msg.pressure = HID_UP;
+
+			xQueueSend( xHIDQueue, &xtc_Msg, 10/portTICK_RATE_MS );
+
+            AD7843_Enable_INT();
+			vTaskSuspend(NULL);
+			tc_delay = PEN_DOWN_DELAY;
+		}
+	}
+}
+
+
+/**
+  * @brief  This function handles External lines 9 to 5 interrupt request.
+  * @param  None
+  * @retval None
+  */
+void EXTI4_IRQHandler(void)
+{
+ 	if (EXTI_GetITStatus(EXTI_Line4 ) != RESET)
+	{
+		/* As KEY_BUTTON_EXTI_LINE pending bit is not cleared, the CPU will execute
+		indefinitely this ISR and when the WWDG counter falls to 3Fh the WWDG reset 
+		occurs */
+        EXTI_ClearITPendingBit(EXTI_Line4);
+
+		AD7843_Disable_INT();
+		
+		xTaskResumeFromISR(xTCTaskHandle);
+	}
+}
+
+

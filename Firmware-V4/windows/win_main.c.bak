@@ -1,0 +1,226 @@
+/* Includes ------------------------------------------------------------------*/
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
+/* Scheduler includes. */
+#include "FreeRTOS.h"
+#include "task.h"
+#include "queue.h"
+
+#include "stm32f10x.h"
+#include "lcd.h"
+#include "adc.h"
+#include "keyboard.h"
+#include "ups.h"
+#include "window.h"
+#include "win_main.h"
+#include "win_setup.h"
+
+/* Private typedef -----------------------------------------------------------*/
+/* Private define ------------------------------------------------------------*/
+/* Private macro -------------------------------------------------------------*/
+/* Private variables ---------------------------------------------------------*/
+sMenuItem Main_Menu_Page1[] = 
+{
+	{MSG_USER_MAIN_UP,		"▲",	16,64,MSG_KEY_F1},
+	{MSG_USER_MAIN_DOWN,	"▼",	56,64,MSG_KEY_F2},
+	{MSG_USER_MAIN_SETUP,	"设置",	128,64,MSG_KEY_F4},
+	{0,0,0,0}	
+};
+
+sMenuItem Main_Menu_Page2[] = 
+{
+	{MSG_USER_MAIN_UP,		"▲",	16,64,MSG_KEY_F1},
+	{MSG_USER_MAIN_DOWN,	"▼",	56,64,MSG_KEY_F2},
+	{MSG_USER_MAIN_SETUP,	"设置",	128,64,MSG_KEY_F4},
+	{0,0,0,0}	
+};
+
+static portBASE_TYPE page=0;    
+/* Private function prototypes -----------------------------------------------*/
+/* Private functions ---------------------------------------------------------*/
+void main_win_refresh(void);
+void main_win_msg(uint16_t msg);
+
+
+sWindow win_main = {
+	main_win_msg,Main_Menu_Page1,0
+};
+
+
+void main_win_draw(void)
+{
+	char str[64];
+	uint16_t x,y;
+	int32_t ma;
+
+	LCD_Clear();
+	LCD_SetCursor(x=0,y=0);
+	switch( page ){
+	case 0:
+		ma = dc_ma - bat_ma;
+		if ( ma < 500 )
+			ma = 0;
+		sprintf(str,"输出:%2u.%01uV %3u.%01uA     \n",dc_mv/1000,dc_mv%1000/100,ma/1000,ma%1000/100);	
+		LCD_DisplayString(str);
+		sprintf(str,"电池:%2u.%01uV %3d.%01uA     \n",bat_mv/1000,bat_mv%1000/100,(bat_ma/1000),abs(bat_ma%1000/100));
+		LCD_DisplayString(str);
+		//sprintf(str,"电池温度:% 2d.%1u % 2d.%1u\n",bat_temp_max/10,abs(bat_temp_max)%10,bat_temp_min/10,abs(bat_temp_min)%10);
+		//LCD_DisplayString(str);
+		break;
+	case 1:
+		sprintf(str,"ALARM: 0x%04x\r\n",dc_state);
+		LCD_DisplayString(str);
+		break;
+	default:
+		break;
+	}
+	main_win_refresh();
+	//LCD_Rectangle(0,0,240,128);
+}
+
+void main_win_refresh(void)
+{
+	char str[64],str2[64];
+	uint16_t i,x,y;
+	uint32_t mv;
+	int32_t ma;
+	int32_t temp_max,temp_min;
+	static uint16_t test=0;
+	int32_t temp[4];
+
+	switch ( page ){
+	case 0:
+		LCD_SetCursor(x=0,y=0);
+		ma = dc_ma - bat_ma;
+		if ( ma < 1000 )
+			ma = 0;
+		sprintf(str,"系统:%2u.%01uV %3d.%01uA     \n",dc_mv/1000,dc_mv%1000/100,ma/1000,ma%1000/100);	
+		LCD_DisplayString(str);
+		
+		if ( bat_ma > -2000 && bat_ma < 2000 )	ma = 0;
+		else 									ma = bat_ma;
+		sprintf(str,"电池:%2u.%01uV %3d.%01uA     \n",bat_mv/1000,bat_mv%1000/100,(abs(ma)/1000),abs(ma%1000/100));
+		LCD_DisplayString(str);
+		
+		strcpy(str2,"正  常  ");
+		if ( dc_state & (UPS_PFC_ERR | UPS_AC_ERR) )strcpy(str2,"交流异常");
+		else {
+			if 		( dc_state & UPS_DC_OV )	strcpy(str2,"过  压  ");
+			else if ( dc_state & UPS_DC_OC )	strcpy(str2,"过  流  ");
+			else if	( dc_state & UPS_DC_OUT_ERR)strcpy(str2,"输出异常");
+			else if ( dc_state & UPS_DC_FAULT )	strcpy(str2,"关  断  ");
+		}
+		sprintf(str,"开关电源:%s\n",str2);
+		LCD_DisplayString(str);
+		
+		strcpy(str2,"");
+		if ( bat_state & BAT_NOT_PLUGIN )
+			strcpy(str2,"未接入   ");
+		else if ( bat_state & BAT_FAULT )
+			strcpy(str2,"失  效   ");
+		else if ( bat_state & BAT_CUTOFF_HIGH )
+			/*strcpy(str2,"过压切断     ");*/
+			strcpy(str2,"切  断   ");
+		else if ( bat_state & BAT_CUTOFF_LOW )
+			strcpy(str2,"低压切断 ");
+		else if ( bat_state & BAT_CUTOFF_OC )
+			strcpy(str2,"过流切断 ");
+		else if ( bat_state & BAT_VOL_LOW )
+			strcpy(str2,"欠  压   ");
+		else if ( bat_state & BAT_TMP_HIGH)
+			strcpy(str2,"温度过高 ");
+		else if ( bat_state & BAT_TMP_LOW)
+			strcpy(str2,"温度过低 ");
+		else if ( (bat_state & BAT_CHARGING) && !(dc_state & UPS_DC_FAULT) )
+			strcpy(str2,"充电中...");
+		else if ( bat_ma < -2000 )
+			strcpy(str2,"放电中...");
+		else if ( bat_state & BAT_FULL )
+			strcpy(str2,"已充满   ");
+		else
+			strcpy(str2,"正  常   ");
+		sprintf(str,"电池状态:%s",str2);
+		LCD_DisplayString(str);
+		
+//		sprintf(str,"电池温度:% 2d.%1u % 2d.%1u\n",bat_temp_max/10,abs(bat_temp_max)%10,bat_temp_min/10,abs(bat_temp_min)%10);
+//		LCD_DisplayString(str);
+
+/*		if ( (vol = dc_mv) < 10*1000 )
+			vol = bat_mv;
+		sprintf(str," %2u.%01uV  ",vol/1000,vol%1000/100);
+		LCD_DisplayString(str);
+		LCD_SetCursor(8*13,16);
+		sprintf(str,"%3u.%01uA  ",dc_ma/1000,dc_ma%1000/100);
+		LCD_DisplayString(str);
+		LCD_SetCursor(8*13,32);
+		sprintf(str,"% 3d.%01uA  ",bat_ma/1000,abs(bat_ma%1000/100));
+		LCD_DisplayString(str);
+		
+		LCD_SetCursor(8*9,48);
+*/		/*if ( (temp_max = bat_temp_max) == -999 )
+			temp_max = bat_temp_min;
+		if ( (temp_min = bat_temp_min) == -999 )
+			temp_min = bat_temp_max;
+		sprintf(str,"% 2.1f % 2.1f\n",(float)temp_max/10,(float)temp_min/10);
+		*/
+/*		LCD_SetCursor(0,48);
+		sprintf(str,"%2.1f %2.1f %2.1f %2.1f \n",(float)bat_temp[0]/10,(float)bat_temp[1]/10,(float)bat_temp[2]/10,(float)bat_temp[3]/10);
+	
+		LCD_DisplayString(str);
+*/
+		break;
+	case 1:
+		LCD_SetCursor(0,0);
+		//sprintf(str,"ALARM: 0x%04x\r\n",dc_state);	
+		//LCD_DisplayString(str);
+		sprintf(str,"电池温度:% 2d.%1u % 2d.%1u\n",bat_temp_max/10,abs(bat_temp_max)%10,bat_temp_min/10,abs(bat_temp_min)%10);
+		LCD_DisplayString(str);
+		break;
+	default:
+		break;
+	}
+}
+
+
+void main_win_msg(uint16_t msg)
+{
+
+	switch (msg){
+	case MSG_WIN_NULL:
+		return;
+	case MSG_WIN_DRAW:
+		main_win_draw();
+		break;
+	case MSG_WIN_REDRAW:
+		main_win_draw();
+		break;
+	case MSG_WIN_REFRESH:
+		main_win_refresh();
+		break;
+	case MSG_USER_MAIN_UP:
+		if ( page ){
+			page --;
+			win_main.psMenu = Main_Menu_Page1;
+			Win_PutMsg(MSG_WIN_DRAW);
+		}
+		break;
+	case MSG_USER_MAIN_DOWN:
+		if ( page < 1 ){
+			page ++;
+			win_main.psMenu = Main_Menu_Page2;
+			Win_PutMsg(MSG_WIN_DRAW);
+		}
+		break;
+	case MSG_USER_MAIN_SETUP:
+		Win_SetFront(&win_setup);
+		break;
+	default:
+		break;
+	}
+	Win_MenuTask( msg );
+}
+
+

@@ -1,0 +1,40 @@
+
+#ifndef __CAN_H__
+#define __CAN_H__
+
+#include "queue.h"
+
+
+typedef void * xCANMsgHandle;
+
+#define PDC_ADDR	0xF4
+#define PDU_ADDR	0xE5
+#define PSU1_ADDR	0xE3
+#define PSU2_ADDR	0xE4
+
+
+#define PDC_TO_PDU_ID	0x1806E5F4
+#define PDU_TO_PDC_ID	0x1006F4E5
+
+#define PDC_TO_PSU1_ID	0x1806E3F4
+#define PSU1_TO_PDC_ID	0x0C06F4E3
+
+#define PDC_TO_PSU2_ID	0x1806E4F4
+#define PSU2_TO_PDC_ID	0x0C06F4E4
+
+
+
+#define PDC_FUN_REQUEST	0x03
+
+#define PDC_FRAME_ID_CH1	0x00
+#define PDC_FRAME_ID_CH2	0x01
+
+
+extern xQueueHandle xCANTxQueue;
+extern xQueueHandle xCANRxQueue;
+
+void vStartCANTasks( unsigned portBASE_TYPE uxPriority );
+
+
+#endif
+

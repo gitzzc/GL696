@@ -1,0 +1,514 @@
+#include <stdlib.h>
+#include <math.h>
+#include <stdint.h>
+
+#include "FreeRTOS.h"
+#include "task.h"
+
+#include "stm32f10x.h"
+
+#include "gl_696h.h"
+#include "adc.h"
+#include "gpio.h"
+#include "pwm_dac.h"
+#include "serials.h"
+#include "mb_reg_map.h"
+#include "modbus.h"
+
+//----------------------------------------------------------------
+#define ON	1
+#define OFF	0
+
+#define VOL_DAC_FULL	5000
+#define CUR_DAC_FULL	5000
+
+#define HV_PWR_ON 	(1<<0)
+#define HV_PWR_OFF 	(1<<1)
+
+//----------------------------------------------------------------
+#define TO_NOT_INIT	(1<<0)
+#define TO_INIT		(1<<1)
+#define TO_RUNING	(1<<2)
+#define TO_TIMEOUT	(1<<3)
+#define TO_STOP		(1<<4)
+
+#define get_sys_tick() (sys_tick)
+
+
+#define HV_POWER_PORT	GPIOA
+#define HV_POWER_CH0	GPIO_Pin_4
+#define HV_POWER_CH1	GPIO_Pin_5
+#define HV_POWER_CH2	GPIO_Pin_6
+#define HV_POWER_CH3	GPIO_Pin_7
+
+//--------------------------------------------------
+TIMEOUT sec_to;
+//----------------------------------------------------------------
+float vmeter;	//真空计测量得到的真空度
+//----------------------------------------------------------------
+uint32_t sys_tick=0;
+
+/*
+ * function:        creat_timer
+ * argument:        none
+ * return value:    pTIMEOUT:指向TIMEOUT的结构指针
+ * description:     创建一个TIMEOUT结构体，并返回指向这个结构体的指针
+ *
+ */
+pTIMEOUT creat_timeout(pTIMEOUT pto)
+{
+	if ( pto == NULL ) {
+ 		if ( (pto = malloc(sizeof(TIMEOUT))) == NULL ){
+  	  		//abort();
+		}
+	}
+
+  pto->status = TO_INIT;
+  return pto;
+}
+
+/*
+ * function:        del_timeout
+ * argument:        pTIMEOUT:指向TIMEOUT的结构指针
+ * return value:    none
+ * description:     删除一个TIMEOUT结构体
+ *
+ */
+void del_timeout(pTIMEOUT pto) 
+{
+  free(pto);
+}
+
+/*
+ * function		: start_timeout
+ * argument		: pTIMEOUT:指向TIMEOUT的结构指针
+ *				  time	设定的定时时间，单位为100us
+ * return value	: none
+ * description	: 设定定时器定时时间
+ *
+ */
+void start_timeout(TIMEOUT *ptimeout,uint32_t time)
+{      
+  ptimeout->status = TO_RUNING;
+  ptimeout->timeout = time;	
+  ptimeout->origin = get_sys_tick();
+}
+
+/*
+ * function		: restart_timeout
+ * argument		: pTIMEOUT:指向TIMEOUT的结构指针
+ * return value	: none
+ * description	: 重启定时器
+ *
+ */
+void restart_timeout(TIMEOUT *ptimeout)
+{      
+  ptimeout->origin = get_sys_tick();
+  ptimeout->status = TO_RUNING;
+}
+
+/*
+ * function		: stop_timeout
+ * argument		: pTIMEOUT:指向TIMEOUT的结构指针
+ * return value	: none
+ * description	: 设定定时器定时时间
+ *
+ */
+void stop_timeout(TIMEOUT *ptimeout)
+{      
+  ptimeout->status = TO_STOP;
+}
+
+/*
+ * function		: get_timeout
+ * argument		: pTIMEOUT:指向TIMEOUT的结构指针
+ * return value	: 定时器状态
+ *				TO_RUNING 定时器正在运行中
+ *				TO_STOP	  定时已经结束，并己停止运行
+ *				TO_TIMEOUT 定时器定时结束，此状态只在定时结束后第一次读取时返回
+ *
+ * description	: 读取当前定时器状态
+ *
+ */
+uint32_t get_timeout(TIMEOUT *ptimeout)
+{
+  uint32_t  ltemp;
+  uint32_t ret;
+
+  ret = ptimeout->status;
+  if (ret != TO_RUNING)
+		return (ret);
+
+  ltemp = get_sys_tick();
+  if ( ltemp >= ptimeout->origin )
+		ltemp -= ptimeout->origin;
+  else 
+		ltemp += UINT32_MAX - ptimeout->origin;
+
+  if ( ltemp > ptimeout->timeout ){
+		//ptimeout->timeout = 0;
+	    //ptimeout->origin = ltemp;
+		ptimeout->status = TO_STOP;
+		ret = TO_TIMEOUT;
+    return ret;
+  } else
+    return ret;
+}
+
+
+//---------------------------------------------------------------------
+int32_t hv_pwr_ctl(uint32_t ch,int32_t cmd)
+{
+	if ( cmd & HV_PWR_ON ) {
+		GPIO_WriteBit(HV_POWER_PORT, ch, Bit_RESET);
+	}	else if ( cmd & HV_PWR_OFF ) {
+		GPIO_WriteBit(HV_POWER_PORT, ch, Bit_SET);
+	}
+	return 0;
+}	
+
+
+
+//-----------------------------------------------------------------------------------
+//真空计电源控制
+int32_t vmeter_ctl(int32_t cmd)
+{
+	if ( cmd & VMETER_PWR_OFF ) {
+		Relay_SetBit( VMETER_RELAY_CH, OFF );
+		usRegInputBuf[MB_VMETER_ST] = VMETER_PWR_OFF;
+		vmeter = 1.0E3;
+		//更新modbus真空度寄存器
+		usRegInputBuf[MB_VMETER0] = (((uint8_t*)&vmeter)[3]<<8) | ((uint8_t*)&vmeter)[2];
+		usRegInputBuf[MB_VMETER1] = (((uint8_t*)&vmeter)[1]<<8) | ((uint8_t*)&vmeter)[0];
+	} else if ( cmd & VMETER_PWR_ON ) {
+		Relay_SetBit( VMETER_RELAY_CH, ON );
+		usRegInputBuf[MB_VMETER_ST] = VMETER_PWR_ON;
+	}
+	return 0;
+}
+
+//-----------------------------------------------------------------------------------
+static xComPortHandle vmeter_Port = NULL;
+
+void vmeter_init(void)
+{
+	usRegInputBuf[MB_VMETER_ST] 	= 0;
+	usRegInputBuf[MB_VMETER0] 		= 0;
+	usRegInputBuf[MB_VMETER1] 		= 0;
+	usRegHoldingBuf[VMETER_START_DELAY]= 10*1000;	//10S
+	usRegHoldingBuf[VMETER_STOP_DELAY] = 3*1000;	//3S
+
+	vmeter_ctl(VMETER_PWR_OFF);
+
+	creat_timeout(&vmeter_to);
+	vmeter_Port = xSerialPortInit( serCOM3, ser1200, serNO_PARITY, serBITS_8, serSTOP_1, 256 );
+}
+
+//-----------------------------------------------------------------------------------
+//读取真空计数据，转换成32bit浮点数，存储在MODBUS寄存器中，
+//其中，usRegInputBuf[MB_VMETER0]为bit31-16,usRegInputBuf[MB_VMETER1]为bit15-0
+int32_t vmeter_task()
+{
+	static uint8_t buf[32];
+	static int32_t rx_len=0;
+	int32_t i;
+  //int32_t j;
+  	
+	if ( rx_len + 9 > sizeof(buf) )
+		rx_len = 0;
+
+	i = xSerialGet(vmeter_Port,buf+rx_len,sizeof(buf)-rx_len,configTICK_RATE_HZ/100);
+	if ( i == 0 )
+		return 0;
+	/*
+	buf[0] = 0x2A;
+	memcpy(buf+1,"2313----",8);
+	*/
+	
+	rx_len += i;
+	for ( i=0; rx_len-i>=9; i++ ){
+		if ( buf[i] == 0x2A ){
+			rx_len = 0;
+			buf[i+9] = '\0';
+			//usart_printf(DBGU,"\r\n真空计:%s,",buf+i+1);
+			
+			if ( buf[i+2+4] != '-' )//只要电离规有数据，则以些为准 
+				i += 4;
+			else if ( buf[i+2] == '?' || buf[i+2] == '-'){
+				rx_len=0 ;
+				break;
+			}
+				
+			vmeter = buf[i+1] - '0';
+			vmeter += (float)(buf[i+2] - '0')/10;
+			if ( buf[i+3] == '+' )
+				vmeter *= pow(10,(buf[i+4]-'0'));
+			else if ( buf[i+3] == '-' )
+				vmeter *= pow(10,-(buf[i+4]-'0'));
+
+			//更新modbus真空度寄存器
+			usRegInputBuf[MB_VMETER0] = (((uint8_t*)&vmeter)[3]<<8) | ((uint8_t*)&vmeter)[2];
+			usRegInputBuf[MB_VMETER1] = (((uint8_t*)&vmeter)[1]<<8) | ((uint8_t*)&vmeter)[0];
+			rx_len = 0;
+			break;
+		}
+	}	
+	return 0;
+}
+
+//-----------------------------------------------------------------------------------
+
+//放气阀控制
+int32_t bleed_valve_ctl(int32_t cmd)
+{
+	if ( cmd & POWER_ON ) {
+		//放气前，机械泵与分子泵必须先停止
+		if ( usRegInputBuf[MB_POWERPUMP_ST] & POWER_ON )
+			return -1;
+
+		Relay_SetBit(BLEED_VALVE_CH,ON);	
+		usRegInputBuf[MB_BLEED_VALVE_ST] = POWER_ON;
+	} else if ( cmd & POWER_OFF ) {
+		Relay_SetBit(BLEED_VALVE_CH,OFF);	
+		usRegInputBuf[MB_BLEED_VALVE_ST] = POWER_OFF;
+	}
+	return 0;
+}
+
+//-----------------------------------------------------------------------------------
+static xComPortHandle FD110A_Port = NULL;
+
+void temp_read_reg(int32_t ch)
+{
+	uint8_t buf[32];
+	uint16_t usCRC16;
+	
+	if ( ch == 0 )
+		buf [0] = 0x31;
+	else 
+		buf [0] = 0x32;
+	buf [1] = 0x03;
+	buf [2] = 0x00;
+	buf [3] = 0x00;
+	buf [4] = 0x00;
+    /* Calculate CRC16 checksum for Modbus-Serial-Line-PDU. */
+    usCRC16 = usMBCRC16( ( UCHAR * ) buf, 5 );
+    buf[5] = ( usCRC16 & 0xFF );
+    buf[6] = ( usCRC16 >> 8 );
+
+	vSerialPut( FD110A_Port, buf, 4);
+	vTaskDelay( configTICK_RATE_HZ/10 );
+	//vSerialPut( FD110A_Port, buf, 4);
+}
+
+int32_t temp_task()
+{
+	static uint8_t buf[64];
+	static int32_t rx_len=0;
+	int32_t i;
+
+	if ( xSerialIsArrive(FD110A_Port) == pdFALSE )
+		return 0;
+		
+	if ( rx_len + 7 > sizeof(buf) )
+		rx_len = 0;
+		
+	i = xSerialGet(FD110A_Port,buf+rx_len,sizeof(buf)-rx_len,configTICK_RATE_HZ/10);
+	rx_len += i;
+	
+	for ( i=0; rx_len-i>=7; i++ ){
+		if ( buf[i] == 0x31 && buf[i+1] == 0x03 && buf[i+2] == 0x02 ){
+			rx_len = 0;
+			usRegInputBuf[MB_TEMP0] = ((buf[i+3] << 8) | buf[i+4]);
+		} else if ( buf[i] == 0x32 && buf[i+1] == 0x03 && buf[i+2] == 0x02 ){
+			rx_len = 0;
+			usRegInputBuf[MB_TEMP1] = ((buf[i+3] << 8) | buf[i+4]);
+		}
+	}	
+	return 0;		
+}
+
+int32_t mpump_ctl( uint16_t cmd )
+{	
+	uint8_t vmeter_set[4];
+	
+	if ( cmd & POWER_OFF ){
+		//int32_t temp;
+		usRegInputBuf[MB_MPUMP_ST] |= MPUMP_PWR_OFFING;
+		if  ( usRegInputBuf[MB_MPUMP_ST] & MPUMP_RUN ){
+			usRegInputBuf[MB_MPUMP_ST] &= ~MPUMP_RUN;
+			mpump_ctl_from_com(FD110A_STOP);
+		}
+
+		//如果分子泵还有转速，则不可关闭！
+		if ( usRegInputBuf[MB_MPUMP_FREQ] )
+			return -1;
+		
+		usRegInputBuf[MB_MPUMP_ST] =  POWER_OFF;
+	} else if ( cmd & POWER_ON ) {
+		//如果机械泵还没有上电，则不可以开启分子泵
+		if ( !(usRegInputBuf[MB_POWERPUMP_ST] & POWER_ON) ) {
+			//usart_printf(DBGU,"机械泵未上电!\r\n");
+			return -3;
+		}
+			
+		//Relay_SetBit( MPUMP_RELAY_CH, ON );
+		usRegInputBuf[MB_MPUMP_ST] = POWER_ON;
+	}
+	
+	if ( (usRegInputBuf[MB_MPUMP_ST] & POWER_ON) != POWER_ON )
+		return -5;
+	
+	if ( cmd & MPUMP_LOW_SP ) {
+		mpump_ctl_from_com(FD110A_LOW_SP);
+		usRegInputBuf[MB_MPUMP_ST] &= ~MPUMP_HIGH_SP;
+		usRegInputBuf[MB_MPUMP_ST] |= MPUMP_LOW_SP;
+	} else if ( cmd & MPUMP_HIGH_SP ) {
+		mpump_ctl_from_com(FD110A_HIGH_SP);
+		usRegInputBuf[MB_MPUMP_ST] &= ~MPUMP_LOW_SP;
+		usRegInputBuf[MB_MPUMP_ST] |= MPUMP_HIGH_SP;
+	} 
+	
+	if ( cmd & MPUMP_STOP ) {
+		//如果还存在高压，则不可以停止分子泵
+		//if ( hvsl.vol_fb > 1000 || hvsr.vol_fb > 1000 )
+		//	return -2;
+
+		mpump_ctl_from_com(FD110A_STOP);
+		usRegInputBuf[MB_MPUMP_ST] &= ~MPUMP_RUN;
+	} else if ( cmd & MPUMP_RUN ) {
+		//真空度达不到8.0e0，则不可以开启分子泵
+		vmeter_set[0] = usRegHoldingBuf[MB_VMETER_SET0]>>8;
+		vmeter_set[1] = usRegHoldingBuf[MB_VMETER_SET0];
+		vmeter_set[2] = usRegHoldingBuf[MB_VMETER_SET1]>>8;
+		vmeter_set[3] = usRegHoldingBuf[MB_VMETER_SET1];
+		
+		if ( vmeter > *(float*)vmeter_set ){
+			return -4;
+		}
+		
+		mpump_ctl_from_com(FD110A_START);
+		usRegInputBuf[MB_MPUMP_ST] |= MPUMP_RUN;
+	} 
+
+	return 0;
+}
+
+
+//-----------------------------------------------------------------------------------
+
+void hv_init(void)
+{
+	GPIO_InitTypeDef 	GPIO_InitStructure;
+
+	/* Enable the Clock */
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_AFIO, ENABLE);
+	
+	GPIO_InitStructure.GPIO_Pin 	= HV_POWER_CH0 | HV_POWER_CH1 | HV_POWER_CH2 | HV_POWER_CH3;
+	GPIO_InitStructure.GPIO_Speed 	= GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Mode 	= GPIO_Mode_Out_OD;
+	GPIO_Init(HV_POWER_PORT, &GPIO_InitStructure);
+	
+	hv_pwr_ctl(hvsl.power_ch,HV_PWR_OFF);
+	hv_pwr_ctl(hvsr.power_ch,HV_PWR_OFF);
+}
+
+void update_adc_modbus()
+{
+	uint16_t buf16[32];
+	uint16_t i;
+	
+	for(i=0;i<8;i++){
+		ADC_Get(ADC_Channel_8+i,buf16,32);	
+		exchange_sort16(buf16,32);
+		vPortEnterCritical();
+		usRegInputBuf[MB_ADC0+i] = get_average16(buf16+6,32-2*6);
+		vPortExitCritical();
+	}
+}
+
+int32_t gl_696h_init()
+{
+	hv_init();
+
+	return 0;
+}
+
+
+void vGL696H_Task( void *pvParameters )
+{
+	uint32_t i=0,j,motor = 0;
+	uint32_t sec=0;
+//	uint16_t buf[128];
+	portTickType xLastWakeTime;
+
+	(void)pvParameters;
+
+	gl_696h_init(); 
+
+	start_timeout(&sec_to,1000);//1s
+	xLastWakeTime = xTaskGetTickCount ();
+
+	while(1){
+		sys_tick += 10;
+		
+		//Relay_Set(RelayBits);
+	    //led_task();
+	    //beep_task();
+	  
+		//---------------------------------------------------------------------------------
+	    //hv_vol_task(&hvsl);
+	    //hv_cur_task(&hvsl);
+	    
+	    //hv_vol_task(&hvsr);
+	    //hv_cur_task(&hvsr);
+
+	    //---------------------------------------------------------------------------------
+	    //mb_cmd_process();
+	    //---------------------------------------------------------------------------------
+	    //sample_monitor_task();
+	    //----------真空计控制-------------------------------------------------------------
+		
+		update_adc_modbus();
+      	mpump_task();
+      	if ( (sys_tick % 500) == 0 ) {
+			temp_read_reg(FD110A_STATUS);
+    	} 
+
+	    //---------------------------------------------------------------------------------
+	    if ( get_timeout(&sec_to) == TO_TIMEOUT) {
+			restart_timeout(&sec_to);
+			sec ++;
+
+		    vmeter_task();
+	 
+			//usart_printf(DBGU, " adc : ");
+	    	/*for(j=0;j<8;j++){
+		    	ADC_Get(8+j,buf,32);
+		    	//usart_printf(DBGU, " %4dmV ,",adc_get_mv(buf[0]));
+		    }
+		    //usart_printf(DBGU, "\r\n");
+	   		
+			i = 1000;
+			PWM_DAC_SetmV(0,i);i += 100;
+			PWM_DAC_SetmV(1,i);i += 100;
+			PWM_DAC_SetmV(2,i);i += 100;
+			PWM_DAC_SetmV(3,i);i += 100;   
+			PWM_DAC_SetmV(4,i);i += 100;
+			PWM_DAC_SetmV(5,i);i += 100;
+			PWM_DAC_SetmV(6,i);i += 100;
+			PWM_DAC_SetmV(7,i);i += 100;   
+	  	    */
+
+
+	      	//----------自动控制---------------------------------------------------------------
+	    	auto_ctl_task();
+	      
+			
+			if ( (sec % 60 ) == 0 ){
+			}
+	    }
+		//-----------------------------------------------------------------------------------
+		vTaskDelayUntil( &xLastWakeTime, configTICK_RATE_HZ/100 );
+	}//	while(1){
+}

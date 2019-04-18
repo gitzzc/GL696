@@ -260,6 +260,7 @@ int32_t powerpump_ctl(int32_t cmd)
 		DIO_Write(RELAY0,DO_RELAY_OFF);
 		DIO_Write(RELAY1,DO_RELAY_OFF);
 		eMBRegInput_Write(MB_MOTOR_ST, eMBRegInput_Read(MB_MOTOR_ST) & ~MOTOR_ENABLE );
+		vmeter_ctl(VMETER_PWR_OFF);
 	} else if ( cmd & POWER_ON ) {
 		DIO_Write( RELAY_POWERPUMP, DO_RELAY_ON );
 		eMBRegInput_Write(MB_POWERPUMP_ST,POWERPUMP_PWR_ON);
@@ -267,6 +268,7 @@ int32_t powerpump_ctl(int32_t cmd)
 //		eMBRegHolding_Write(MB_SYS_AUTOCTL,SYS_AUTO_ON);
 		eMBRegInput_Write(MB_MOTOR_ST, eMBRegInput_Read(MB_MOTOR_ST) | MOTOR_ENABLE );
 		auto_st_end = 1;
+		vmeter_ctl(VMETER_PWR_ON);	//AL1000,使用，为了使用进口规时，手动启动时能够使上位机显示真空度，
 	}
 	return 0;
 }

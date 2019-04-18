@@ -1,0 +1,221 @@
+/* Includes ------------------------------------------------------------------*/
+
+#include "stdlib.h"
+#include "stdio.h"
+
+/* Scheduler includes. */
+#include "FreeRTOS.h"
+#include "task.h"
+#include "queue.h"
+
+#include "stm32f10x.h"
+#include "gpio.h"
+
+/* Private typedef -----------------------------------------------------------*/
+/* Private define ------------------------------------------------------------*/
+/* Private macro -------------------------------------------------------------*/
+/* Private variables ---------------------------------------------------------*/
+    
+/* Private function prototypes -----------------------------------------------*/
+/* Private functions ---------------------------------------------------------*/
+
+//-------------------------------------------------------------------------
+static const DIO_PIN dio_pins[] = 
+{
+	{KB_CLR,	DIO_OUT,GPIO_Pin_6,GPIOB,GPIO_Mode_Out_OD,1},
+	{DC_CODE0,	DIO_IN,GPIO_Pin_6 ,GPIOC,GPIO_Mode_IPU,1},
+	{BX_CODE1,	DIO_IN,GPIO_Pin_7 ,GPIOC,GPIO_Mode_IPU,1},
+	{BX_CODE0,	DIO_IN,GPIO_Pin_8 ,GPIOC,GPIO_Mode_IPU,1},
+	{BX_BH,		DIO_IN,GPIO_Pin_9 ,GPIOC,GPIO_Mode_IPU,1},
+	{AD_SEL0,	DIO_OUT,GPIO_Pin_10,GPIOC,GPIO_Mode_Out_OD,1},
+	{AD_SEL1,	DIO_OUT,GPIO_Pin_11,GPIOC,GPIO_Mode_Out_OD,1},
+	{AD_SEL2,	DIO_OUT,GPIO_Pin_12,GPIOC,GPIO_Mode_Out_OD,1},
+	
+	{DIO_SR, 	DIO_IN ,GPIO_Pin_8 ,GPIOD,GPIO_Mode_IPD,1},
+	{BX2_CD6, 	DIO_IN ,GPIO_Pin_9 ,GPIOD,GPIO_Mode_IPU,1},
+	{BX2_CD5,	DIO_IN ,GPIO_Pin_10,GPIOD,GPIO_Mode_IPU,1},
+	{BX2_CD2,	DIO_IN ,GPIO_Pin_11,GPIOD,GPIO_Mode_IPU,1},
+	{BX2_CD3,	DIO_IN ,GPIO_Pin_12,GPIOD,GPIO_Mode_IPU,1},
+	{BX1_CD6,	DIO_IN ,GPIO_Pin_13,GPIOD,GPIO_Mode_IPU,1},
+	{BX1_CD3,	DIO_IN ,GPIO_Pin_14,GPIOD,GPIO_Mode_IPU,1},
+	{DC_CODE1,	DIO_IN ,GPIO_Pin_15,GPIOD,GPIO_Mode_IPU,1},
+	
+	{KB_OE,		DIO_IN ,GPIO_Pin_0 ,GPIOE,GPIO_Mode_IPU,0},
+	{BEEP,		DIO_OUT,GPIO_Pin_1 ,GPIOE,GPIO_Mode_Out_OD,1},
+	{DC100V_KEY,DIO_IN ,GPIO_Pin_2 ,GPIOE,GPIO_Mode_IPU,1},
+	{RPROTECT_KEY,DIO_IN,GPIO_Pin_3 ,GPIOE,GPIO_Mode_IPU,1},
+	{RELAY0,	DIO_OUT,GPIO_Pin_4 ,GPIOE,GPIO_Mode_Out_PP,0},
+	{RELAY1,	DIO_OUT,GPIO_Pin_5 ,GPIOE,GPIO_Mode_Out_PP,0},
+	{DC100V_LED,DIO_OUT,GPIO_Pin_6 ,GPIOE,GPIO_Mode_Out_PP,0},
+	{AC_LED,	DIO_OUT,GPIO_Pin_7 ,GPIOE,GPIO_Mode_Out_PP,1},
+
+	{RELAY4,	DIO_OUT,GPIO_Pin_8  ,GPIOE,GPIO_Mode_Out_PP,0},
+	{RELAY5,	DIO_OUT,GPIO_Pin_9  ,GPIOE,GPIO_Mode_Out_PP,0},
+	{RELAY6,	DIO_OUT,GPIO_Pin_10 ,GPIOE,GPIO_Mode_Out_PP,0},
+	{RELAY7,	DIO_OUT,GPIO_Pin_11 ,GPIOE,GPIO_Mode_Out_PP,0},
+	{RELAY8,	DIO_OUT,GPIO_Pin_12 ,GPIOE,GPIO_Mode_Out_PP,0},
+	{RELAY9,	DIO_OUT,GPIO_Pin_13 ,GPIOE,GPIO_Mode_Out_PP,0},
+	{RELAY10,	DIO_OUT,GPIO_Pin_14 ,GPIOE,GPIO_Mode_Out_PP,0},
+	{RELAY11,	DIO_OUT,GPIO_Pin_15 ,GPIOE,GPIO_Mode_Out_PP,0},
+	{RELAY12,	DIO_OUT,GPIO_Pin_10 ,GPIOB,GPIO_Mode_Out_PP,0},
+
+}; 
+
+sBIT_FILTER bitFilter[sizeof(dio_pins)/sizeof(DIO_PIN)];
+uint8_t	alarm_new;
+uint8_t	alarm_num;
+
+//-------------------------------------------------------------------------
+
+void DIO_Init()
+{
+	GPIO_InitTypeDef 	GPIO_InitStructure;
+	uint16_t i;
+
+	/* Enable GPIOx clock */
+	RCC_APB2PeriphClockCmd( RCC_APB2Periph_GPIOC | RCC_APB2Periph_GPIOD | RCC_APB2Periph_GPIOE, ENABLE);
+
+	for(i=0;i<sizeof(dio_pins)/sizeof(DIO_PIN);i++){
+		if ( dio_pins[i].type == DIO_OUT ){
+			DIO_Write(i,dio_pins[i].level);
+			/* Configure Output pins in Push-Pull mode */
+			GPIO_InitStructure.GPIO_Pin 	= dio_pins[i].pin;
+			GPIO_InitStructure.GPIO_Speed 	= GPIO_Speed_50MHz;
+			GPIO_InitStructure.GPIO_Mode 	= dio_pins[i].mode;
+			GPIO_Init(dio_pins[i].reg, &GPIO_InitStructure);
+		} else {
+			/* Configure In pins in Pull-Up mode */
+			GPIO_InitStructure.GPIO_Pin 	= dio_pins[i].pin;
+			GPIO_InitStructure.GPIO_Speed 	= GPIO_Speed_50MHz;
+			GPIO_InitStructure.GPIO_Mode 	= dio_pins[i].mode;
+			GPIO_Init(dio_pins[i].reg, &GPIO_InitStructure);
+		}
+	}
+}
+
+//-------------------------------------------------------------------------
+
+void DIO_Write(uint8_t ch, uint8_t hi_low)
+{
+//	if ( dio_pins[ch].type == DIO_IN )
+//		return;
+		
+	if ( hi_low )
+		dio_pins[ch].reg->BSRR = dio_pins[ch].pin;
+	else
+		dio_pins[ch].reg->BSRR = dio_pins[ch].pin << 16;
+}
+
+//-------------------------------------------------------------------------
+
+uint8_t DIO_Read(uint8_t ch)
+{
+	if ( dio_pins[ch].type == DIO_IN )
+		return GPIO_ReadInputDataBit(dio_pins[ch].reg,dio_pins[ch].pin);
+	else
+		return GPIO_ReadOutputDataBit(dio_pins[ch].reg,dio_pins[ch].pin);
+}
+
+void DIO_SetMode(uint8_t ch, GPIOMode_TypeDef type)
+{
+	GPIO_InitTypeDef 	GPIO_InitStructure;
+	
+	GPIO_InitStructure.GPIO_Pin 	= dio_pins[ch].pin;
+	GPIO_InitStructure.GPIO_Speed 	= GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Mode 	= type;
+	GPIO_Init(dio_pins[ch].reg, &GPIO_InitStructure);
+}
+
+
+volatile static uint16_t RelayBits=0;
+#define RELAY_OC 	GPIO_Pin_12
+#define RELAY_CS0 	GPIO_Pin_13
+#define RELAY_CS1 	GPIO_Pin_14
+#define RELAY_PORT 	GPIOD
+
+void Relay_INIT()
+{
+	GPIO_InitTypeDef 	GPIO_InitStructure;
+
+	/* Enable the Clock */
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOD | RCC_APB2Periph_AFIO, ENABLE);
+	
+	GPIO_InitStructure.GPIO_Pin 	= GPIO_Pin_0 | GPIO_Pin_1 | GPIO_Pin_2 | GPIO_Pin_3 | \
+									  GPIO_Pin_4 | GPIO_Pin_5 | GPIO_Pin_6 | GPIO_Pin_7	| \
+									  RELAY_OC	 | RELAY_CS0  | RELAY_CS1;
+	GPIO_InitStructure.GPIO_Speed 	= GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Mode 	= GPIO_Mode_Out_PP;
+	GPIO_Init(RELAY_PORT, &GPIO_InitStructure);
+	
+	GPIO_InitStructure.GPIO_Pin 	= RELAY_OC;
+	GPIO_InitStructure.GPIO_Mode 	= GPIO_Mode_Out_OD;
+	GPIO_Init(RELAY_PORT, &GPIO_InitStructure);
+
+	GPIO_WriteBit(RELAY_PORT, RELAY_OC,  Bit_SET);
+	GPIO_WriteBit(RELAY_PORT, RELAY_CS0, Bit_RESET);
+	GPIO_WriteBit(RELAY_PORT, RELAY_CS1, Bit_RESET);
+}
+
+void Relay_Set(uint16_t relay)
+{
+	volatile int i;
+	
+	GPIO_Write(RELAY_PORT,((~relay)&0xFF) | GPIO_ReadOutputData(RELAY_PORT)&~0xFF);
+	GPIO_WriteBit(RELAY_PORT, RELAY_CS0, Bit_SET);
+	for(i=0;i<100;i++);
+	GPIO_WriteBit(RELAY_PORT, RELAY_CS0, Bit_RESET);
+	for(i=0;i<100;i++);
+	
+	GPIO_Write(RELAY_PORT,((~relay>>8)&0xFF) | GPIO_ReadOutputData(RELAY_PORT)&~0xFF);
+	GPIO_WriteBit(RELAY_PORT, RELAY_CS1, Bit_SET);
+	for(i=0;i<100;i++);
+	GPIO_WriteBit(RELAY_PORT, RELAY_CS1, Bit_RESET);
+	for(i=0;i<100;i++);
+
+	GPIO_WriteBit(RELAY_PORT, RELAY_OC, Bit_RESET);
+	
+	RelayBits = relay;
+}
+
+void Relay_SetBit(uint16_t relay_bit,uint8_t st)
+{
+	if ( relay_bit > 15 )
+		return ;
+		
+	if ( st == 1 )
+		Relay_Set(RelayBits | (1<<relay_bit));
+	else if ( st == 0 )
+		Relay_Set(RelayBits & (~(1<<relay_bit)));
+}
+
+
+//-------------------------------------------------------------------------
+/*void Monitor_task(sMONITOR mon,uint32_t* bit_buf,uint32_t num)
+{
+	uint8_t i,bit;
+	uint8_t new,num;
+
+	new = 0;
+	num = 0;
+	for(i=0;i<num;i++){
+		bit = (bit_buf[num/32] >> (num%32)) & 0x01;
+		if ( bitFilter[i].level == bit ){
+			if ( bitFilter[i].count++ >= bitFilter[i].filter ){
+				bitFilter[i].status = bit;
+				if ( bitFilter[i].status == bitFilter[i].type ){
+					if ( bitFilter[i].alarm == 0)
+						new ++;
+					bitFilter[i].alarm = 1;
+					num ++;
+				} else
+					bitFilter[i].alarm = 0;
+			}
+		} else {
+			bitFilter[i].status = DIO_CHANGING;
+			bitFilter[i].count  = 0;
+		}
+		bitFilter[i].level = bit;
+	}
+	monitor.num = num;
+	monitor.new = new;
+}*/

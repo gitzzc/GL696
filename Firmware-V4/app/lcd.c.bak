@@ -1,0 +1,1327 @@
+/******************** (C) COPYRIGHT 2007 STMicroelectronics ********************
+* File Name          : lcd.c
+* Author             : MCD Application Team
+* Date First Issued  : mm/dd/yyyy
+* Description        : This file includes the LCD driver for AM-240320LTNQW00H
+*                      liquid Crystal Display Module of STM32F10x-EVAL.
+********************************************************************************
+* History:
+* mm/dd/yyyy
+********************************************************************************
+* THE PRESENT SOFTWARE WHICH IS FOR GUIDANCE ONLY AIMS AT PROVIDING CUSTOMERS
+* WITH CODING INFORMATION REGARDING THEIR PRODUCTS IN ORDER FOR THEM TO SAVE TIME.
+* AS A RESULT, STMICROELECTRONICS SHALL NOT BE HELD LIABLE FOR ANY DIRECT,
+* INDIRECT OR CONSEQUENTIAL DAMAGES WITH RESPECT TO ANY CLAIMS ARISING FROM THE
+* CONTENT OF SUCH SOFTWARE AND/OR THE USE MADE BY CUSTOMERS OF THE CODING
+* INFORMATION CONTAINED HEREIN IN CONNECTION WITH THEIR PRODUCTS.
+*******************************************************************************/
+
+/* Includes ------------------------------------------------------------------*/
+/* Standard includes. */
+#include <stdio.h>
+#include <string.h>
+
+#include "stm32f10x.h"
+//#include "spi_flash.h"
+
+#include "fonts.h"
+#include "lcd.h"
+
+#include "FreeRTOS.h"
+#include "task.h"
+#include "LCD_Message.h"
+#include "touchscreen.h"
+#include "Calibrate.h"
+#include "can.h"
+#include "iic_eeprom.h"
+
+/* Private typedef -----------------------------------------------------------*/
+/* Private define ------------------------------------------------------------*/
+
+
+#define countof(a) (sizeof(a) / sizeof(*(a)))
+#define BUFFER_SIZE1             (countof(Tx1_Buffer)-1)
+#define BUFFER_SIZE2             (countof(Tx2_Buffer)-1)
+	  
+	  
+/* Private macro -------------------------------------------------------------*/
+
+#define LCD_LED_ON()	GPIO_WriteBit(GPIOE, LCD_LED_PIN, (BitAction)1)
+#define LCD_LED_OFF()	GPIO_WriteBit(GPIOE, LCD_LED_PIN, (BitAction)0)
+	
+#define LCD_ADDR_DAT 	(0<<8)
+#define LCD_ADDR_ROW 	(1<<8)
+#define LCD_ADDR_COL 	(2<<8)
+#define LCD_ADDR_PAGE	(3<<8)
+
+#define LCD_PAGE_0		0x08
+#define LCD_PAGE_1		0x10
+
+#define LCD_LED_PIN		GPIO_Pin_6
+#define LCD_CS_PIN		GPIO_Pin_7
+
+#define LCD_A0_PIN		GPIO_Pin_8
+#define LCD_A1_PIN		GPIO_Pin_9
+#define LCD_RD_PIN		GPIO_Pin_10
+#define LCD_WR_PIN		GPIO_Pin_11
+
+//#define LCD_SET_PAGE(x)		LCD_page = x
+
+/*#define LCD_WriteRAM(RGB_Code) \
+		do {	\
+			LCD_WriteReg(LCD_ADDR_DAT,RGB_Code>>8);	\
+			LCD_WriteReg(LCD_ADDR_DAT,RGB_Code);	\
+		} while(0)
+*/
+/* Private variables ---------------------------------------------------------*/
+  /* Global variables to set the written text color */
+static uint16_t LCD_TextColor = White;
+static uint16_t LCD_BackColor = Black;
+
+volatile uint16_t LCD_CursorX;
+volatile uint16_t LCD_CursorY;
+
+volatile uint8_t LCD_page;
+
+static sFONT *LCD_Currentfonts_EN;
+static sFONT *LCD_Currentfonts_CH;
+
+/* The queue used to send messages to the LCD task. */
+xQueueHandle xLCDQueue;
+
+/* Private function prototypes -----------------------------------------------*/
+/* Private functions ---------------------------------------------------------*/
+/*-----------------------------------------------------------*/
+
+
+/*******************************************************************************
+* Function Name  : LCD_CtrlLinesConfig
+* Description    : Configures LCD control lines in Output Push-Pull mode.
+* Input          : None
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_CtrlLinesConfig(void)
+{
+	GPIO_InitTypeDef GPIO_InitStructure;
+
+	/* Enable the Clock */
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOD | RCC_APB2Periph_GPIOE | RCC_APB2Periph_AFIO, ENABLE);
+
+	/* Configure DATA (PE.08-15) in Output Push-Pull mode */
+	GPIO_InitStructure.GPIO_Pin 	= GPIO_Pin_6  | GPIO_Pin_7  | \
+								  GPIO_Pin_8  | GPIO_Pin_9  | GPIO_Pin_10 | GPIO_Pin_11 |\
+								  GPIO_Pin_12 | GPIO_Pin_13 | GPIO_Pin_14 | GPIO_Pin_15;
+	GPIO_InitStructure.GPIO_Speed	= GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Mode 	= GPIO_Mode_Out_PP;
+	GPIO_Init(GPIOE, &GPIO_InitStructure);
+
+	/* Configure CS,RD,WR,A0,A1 (PD.03-05, PD.07, PD.11-12) in Output Push-Pull mode */
+	GPIO_InitStructure.GPIO_Pin 	= GPIO_Pin_8  | GPIO_Pin_9 | GPIO_Pin_10  | GPIO_Pin_11;
+	GPIO_InitStructure.GPIO_Speed 	= GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Mode 	= GPIO_Mode_Out_PP;
+	GPIO_Init(GPIOD, &GPIO_InitStructure);
+
+	LCD_LED_ON();
+}
+
+/*******************************************************************************
+* Function Name  : LCD_WriteReg
+* Description    : Write the selected LCD Register.
+* Input          : None
+* Output         : None
+* Return         : LCD Register Value.
+*******************************************************************************/
+void LCD_WriteReg(uint16_t LCD_Reg,uint8_t LCD_RegValue)
+{ 
+	vu8 i;
+	
+	vPortEnterCritical();
+	GPIOE->ODR = (GPIOE->ODR&0x007F) | ((uint16_t)LCD_RegValue<<8); for(i=0;i<3;i++);
+	GPIOD->ODR = (GPIOD->ODR&0xF0FF) | LCD_RD_PIN | LCD_Reg;for(i=0;i<3;i++);
+	GPIOD->ODR |= LCD_WR_PIN;for(i=0;i<3;i++);
+	GPIOE->ODR |= LCD_CS_PIN;
+	vPortExitCritical();
+}
+
+/*******************************************************************************
+* Function Name  : LCD_ReadReg
+* Description    : Reads the selected LCD Register.
+* Input          : None
+* Output         : None
+* Return         : LCD Register Value.
+*******************************************************************************/
+uint8_t LCD_ReadReg(uint8_t LCD_Reg)
+{	
+	uint8_t tmp;
+	
+//	LCD_WR_ADDR_EN(LCD_Reg);
+//	tmp = LCD_READ(LCD_RegValue);
+//	LCD_WR_ADDR_DIS();
+	return tmp;
+}
+
+
+uint16_t  LCD_WriteRAM(uint16_t RGB_Code)
+{
+	LCD_WriteReg(LCD_ADDR_DAT,RGB_Code>>8);	
+	LCD_WriteReg(LCD_ADDR_DAT,RGB_Code);	
+}
+/*******************************************************************************
+* Function Name  : LCD_ReadRAM
+* Description    : Reads the LCD RAM.
+* Input          : None
+* Output         : None
+* Return         : LCD RAM Value.
+*******************************************************************************/
+uint16_t  LCD_ReadRAM(void)
+{
+  uint16_t tmp = 0;
+
+	//tmp  = LCD_ReadReg(LCD_ADDR_DAT);
+	//tmp |= LCD_ReadReg(LCD_ADDR_DAT)<<8;
+
+  return tmp;
+}
+
+void LCD_SET_PAGE(uint8_t page)
+{
+	LCD_page = page;
+	LCD_SetCursor(LCD_CursorX, LCD_CursorY);
+}
+
+/*******************************************************************************
+* Function Name  : LCD_PowerOn
+* Description    :
+* Input          : None
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_PowerOn(void)
+{
+}
+
+/*******************************************************************************
+* Function Name  : LCD_DisplayOn
+* Description    : Enables the Display.
+* Input          : None
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_DisplayOn(void)
+{
+	LCD_LED_ON();
+}
+
+/*******************************************************************************
+* Function Name  : LCD_DisplayOff
+* Description    : Disables the Display.
+* Input          : None
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_DisplayOff(void)
+{
+	LCD_LED_OFF();
+}
+
+void prvConfigureLCD( void )
+{
+	/* Initialize the LCD */
+	LCD_Init();
+	
+	/* Set the Back Color */
+	LCD_SetBackColor( Black );
+
+	/* Set the Text Color */
+	LCD_SetTextColor( 0x051F );
+
+	LCD_SET_PAGE(LCD_WRITE_PAGE0 | LCD_DISPLAY_PAGE0);
+	LCD_Clear();
+
+	LCD_SET_PAGE(LCD_WRITE_PAGE1 | LCD_DISPLAY_PAGE0);
+	LCD_Clear();	
+
+	LCD_SET_PAGE(LCD_WRITE_PAGE0 | LCD_DISPLAY_PAGE0);
+}
+
+/*******************************************************************************
+* Function Name  : LCD_Init
+* Description    : Initializes LCD.
+* Input          : None
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_Init(void)
+{
+/* Configure the LCD Control pins --------------------------------------------*/
+  LCD_CtrlLinesConfig();
+}
+/*******************************************************************************
+* Function Name  : LCD_SetTextColor
+* Description    : Sets the Text color.
+* Input          : - Color: specifies the Text color code RGB(5-6-5).
+* Output         : - TextColor: Text color global variable used by LCD_DrawChar
+*                  and LCD_DrawPicture functions.
+* Return         : None
+*******************************************************************************/
+void LCD_SetTextColor(uint16_t Color)
+{
+  LCD_TextColor = Color;
+}
+
+/*******************************************************************************
+* Function Name  : LCD_SetTextColor
+* Description    : Sets the Text color.
+* Input          : - Color: specifies the Text color code RGB(5-6-5).
+* Output         : - TextColor: Text color global variable used by LCD_DrawChar
+*                  and LCD_DrawPicture functions.
+* Return         : None
+*******************************************************************************/
+uint16_t LCD_GetTextColor( void )
+{
+  return LCD_TextColor;
+}
+
+/*******************************************************************************
+* Function Name  : LCD_SetBackColor
+* Description    : Sets the Background color.
+* Input          : - Color: specifies the Background color code RGB(5-6-5).
+* Output         : - BackColor: Background color global variable used by
+*                  LCD_DrawChar and LCD_DrawPicture functions.
+* Return         : None
+*******************************************************************************/
+void LCD_SetBackColor(uint16_t Color)
+{
+  LCD_BackColor = Color;
+}
+
+/*******************************************************************************
+* Function Name  : LCD_SetTextColor
+* Description    : Sets the Text color.
+* Input          : - Color: specifies the Text color code RGB(5-6-5).
+* Output         : - TextColor: Text color global variable used by LCD_DrawChar
+*                  and LCD_DrawPicture functions.
+* Return         : None
+*******************************************************************************/
+uint16_t LCD_GetBackColor( void )
+{
+  return LCD_BackColor;
+}
+
+
+/*******************************************************************************
+* Function Name  : LCD_SetFont_EN
+* Description    : Sets the Text Font.
+* Input          : - 
+* Output         : - 
+* Return         : None
+*******************************************************************************/
+void LCD_SetFont_EN(sFONT *fonts)
+{
+	LCD_Currentfonts_EN = fonts;
+}
+
+/*******************************************************************************
+* Function Name  : LCD_SetFont_EN
+* Description    : Sets the Text Font.
+* Input          : - 
+* Output         : - 
+* Return         : None
+*******************************************************************************/
+sFONT *LCD_GetFont_EN(void)
+{
+	return LCD_Currentfonts_EN;
+}
+
+/*******************************************************************************
+* Function Name  : LCD_SetFont_EN
+* Description    : Sets the Text Font.
+* Input          : - 
+* Output         : - 
+* Return         : None
+*******************************************************************************/
+void LCD_SetFont_CH(sFONT *fonts)
+{
+	LCD_Currentfonts_CH = fonts;
+}
+
+/*******************************************************************************
+* Function Name  : LCD_SetFont_EN
+* Description    : Sets the Text Font.
+* Input          : - 
+* Output         : - 
+* Return         : None
+*******************************************************************************/
+sFONT *LCD_GetFont_CH(void)
+{
+	return LCD_Currentfonts_CH;
+}
+
+/*******************************************************************************
+* Function Name  : LCD_ClearLine
+* Description    : Clears the selected line.
+* Input          : - Line: the Line to be cleared.
+*                    This parameter can be one of the following values:
+*                       - Linex: where x can be 0..9
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_ClearLine(uint8_t Line)
+{
+}
+
+/*******************************************************************************
+* Function Name  : LCD_Clear
+* Description    : Clears the hole LCD.
+* Input          : None
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_Clear(void)
+{
+  	uint32_t i,j;
+
+	for(i = 0; i < 480; i++)
+	{
+		LCD_SetCursor(0, i);
+		for(j=0;j<640;j++){
+			LCD_WriteRAM(LCD_BackColor);
+		}
+	}
+	LCD_SetCursor(0,0);
+}
+
+/*******************************************************************************
+* Function Name  : LCD_SetCursor
+* Description    : Sets the cursor position.
+* Input          : - Xpos: specifies the X position.
+*                  - Ypos: specifies the Y position.
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_SetCursor(uint16_t Xpos, uint16_t Ypos)
+{
+	LCD_CursorX = Xpos;
+	LCD_CursorY = Ypos;
+	if ( LCD_CursorX >= LCD_SCR_WIDTH ){
+		LCD_CursorX = LCD_CursorX - 1;
+	}
+	if ( LCD_CursorY >= LCD_SCR_HIGH )
+		LCD_CursorY = LCD_CursorY - 1;
+
+  	//写行列高地址
+	LCD_WriteReg(LCD_ADDR_PAGE,(LCD_page&0x18) | ((LCD_CursorY>>6)&0x04) | ((LCD_CursorX>>8)&0X03));
+	//写行低地址
+	LCD_WriteReg(LCD_ADDR_ROW,LCD_CursorY);
+	//写列低地址
+	LCD_WriteReg(LCD_ADDR_COL,LCD_CursorX);
+}
+
+u16 LCD_GetCursorX(void)
+{
+	return LCD_CursorX;	
+}
+
+u16 LCD_GetCursorY(void)
+{
+	return LCD_CursorY;	
+}
+
+/*******************************************************************************
+* Function Name  : LCD_SetPixel
+* Description    : Draws a Pixel on LCD.
+* Input          : - Xpos: the Line where to display the character shape.
+*                    This parameter can be one of the following values:
+*                       - Linex: where x can be 0..9
+*                  - Ypos: start column address.
+*                  - c: pointer to the character data.
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_SetPixel(uint16_t x,uint16_t y,uint16_t color)
+{
+	LCD_SetCursor(x, y);
+	LCD_WriteRAM(color);
+}
+
+
+/*******************************************************************************
+* Function Name  : LCD_DrawChar
+* Description    : Draws a character on LCD.
+* Input          : - Xpos: the Line where to display the character shape.
+*                    This parameter can be one of the following values:
+*                       - Linex: where x can be 0..9
+*                  - Ypos: start column address.
+*                  - c: pointer to the character data.
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_DrawChar(const char* mask, uint16_t width, uint16_t height)
+{
+	uint32_t lindex = 0, pindex = 0;
+	uint32_t Yaddress = LCD_CursorY;
+
+	for(lindex = 0; lindex < height; lindex++)
+	{
+		LCD_SetCursor(LCD_CursorX, LCD_CursorY+1);
+		for(pindex = 0; pindex < width; pindex++)
+		{
+			if( mask[lindex*((width+7)>>3) + (pindex>>3)] & (0x80 >> (pindex % 8)) )
+				LCD_WriteRAM(LCD_TextColor);
+			else 
+				LCD_WriteRAM(LCD_BackColor);
+		}
+	}
+//	LCD_SetCursor(LCD_CursorX+width, Yaddress);
+}
+
+/*******************************************************************************
+* Function Name  : LCD_DisplayAscii
+* Description    : Displays one character (16dots width, 24dots height).
+* Input          : - Line: the Line where to display the character shape .
+*                    This parameter can be one of the following values:
+*                       - Linex: where x can be 0..9
+*                  - Column: start column address.
+*                  - Ascii: character ascii code, must be between 0x20 and 0x7E.
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_DisplayAscii(int8_t Ascii)
+{
+	sFONT* sfont = LCD_Currentfonts_EN;
+	
+	Ascii -= ' ';
+	LCD_DrawChar(&sfont->table[Ascii * ((sfont->Width+7)>>3)*sfont->Height],sfont->Width,sfont->Height);
+}
+
+/*******************************************************************************
+* Function Name  : LCD_DrawChar
+* Description    : Draws a character on LCD.
+* Input          : - Xpos: the Line where to display the character shape.
+*                    This parameter can be one of the following values:
+*                       - Linex: where x can be 0..9
+*                  - Ypos: start column address.
+*                  - c: pointer to the character data.
+* Output         : None
+* Return         : None
+*******************************************************************************/
+const char* LCD_GetHz(const char* ch, sFONT* font) 
+{
+	uint16_t i;
+	const char* hz = (const char*)font->table;
+	
+	for(i=0;hz[0] != 0;i++){
+		hz = (const char*)font->table+(((font->Width+7)>>3)*font->Height + 2)*i;
+		if ( memcmp(ch, hz, 2) == 0 )
+			break;
+	}
+	return hz;
+}
+
+/*******************************************************************************
+* Function Name  : LCD_DrawChar
+* Description    : Draws a character on LCD.
+* Input          : - Xpos: the Line where to display the character shape.
+*                    This parameter can be one of the following values:
+*                       - Linex: where x can be 0..9
+*                  - Ypos: start column address.
+*                  - c: pointer to the character data.
+* Output         : None
+* Return         : None
+*******************************************************************************/
+/*const char* LCD_GetHz_2(u8* ch) 
+{
+	short bReturnResult;
+	u16 low=1,high=(sizeof(chinese_tab)/sizeof(Chinese_GB16) - 1),mid; //置当前查找区间上、下界的初值
+	
+	while( low <= high ){ //当前查找区间R[low..high]非空
+		mid = ( low + high ) / 2;
+		
+		bReturnResult = memcmp(ch, chinese_tab[mid].index, 2); 
+		
+		if( bReturnResult == 0 ) 
+			return (const char*)chinese_tab[mid].mask; //查找成功返回
+		if( bReturnResult < 0 )
+			high = mid - 1; //继续在R[low..mid-1]中查找
+		else
+			low = mid + 1; //继续在R[mid+1..high]中查找
+	}
+	return (const char*)chinese_tab[0].mask; //当low>high时表示查找区间为空，查找失败
+}*/
+
+
+void LCD_DisplayHz( const char* hz)
+{
+	sFONT* sfont = LCD_Currentfonts_CH;
+	const char* mask = LCD_GetHz(hz,sfont);
+	
+	LCD_DrawChar(mask+2,sfont->Width,sfont->Height);
+}
+
+
+/*******************************************************************************
+* Function Name  : LCD_DisplayString
+* Description    : Displays a maximum of 200 char on the LCD.
+* Input          : - Line: the starting Line where to display the character shape.
+*                    This parameter can be one of the following values:
+*                       - Linex: where x can be 0..9
+*                  - *ptr: pointer to string to display on LCD.
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_DisplayString(const char* str)
+{
+ 	while(*str) {
+		if(*str=='\n'){
+			str++;
+			if ( LCD_Currentfonts_EN->Height > LCD_Currentfonts_CH->Height )
+				LCD_SetCursor(0, LCD_CursorY + LCD_Currentfonts_EN->Height);
+			else 
+				LCD_SetCursor(0, LCD_CursorY + LCD_Currentfonts_CH->Height);
+		} else if ( *str == '\b' ){
+			if ( LCD_CursorX > 8 ){
+				LCD_SetCursor(LCD_CursorX -8, LCD_CursorY);
+				LCD_DisplayAscii(' ');
+				LCD_SetCursor(LCD_CursorX -8, LCD_CursorY);
+			} else {
+				LCD_SetCursor(LCD_SCR_WIDTH - 8, LCD_CursorY);
+				LCD_DisplayAscii(' ');
+				LCD_SetCursor(LCD_SCR_WIDTH - 8, LCD_CursorY);
+			}
+			str++;
+		} else if((*(uint8_t*)str) > 0xA0){  
+			LCD_DisplayHz(str);
+			str += 2;    			
+		} else if ( (*str) > 0x19 && (*str) < 0x7F ){						
+			LCD_DisplayAscii(*str++);
+		} else 
+			str ++;
+ 	}
+}
+
+/*******************************************************************************
+* Function Name  : LCD_ScrollText
+* Description    :
+* Input          :
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_ScrollText(uint8_t Line, uint8_t *ptr)
+{
+//  uint32_t i = 0, length = 0, x = 0;
+//  uint16_t refcolumn = 319;
+
+//  /* Get the string length */
+//  length = StrLength(ptr);
+//
+//  while(1)
+//  {
+//    /* Send the string character by character on lCD */
+//    while ((*ptr != 0) & (i < 20))
+//    {
+//      /* Display one character on LCD */
+//      LCD_DisplayAscii(Line, refcolumn, *ptr);
+//      /* Decrement the column position by 16 */
+//      refcolumn -= 16;
+//      /* Point on the next character */
+//      ptr++;
+//      /* Increment the character counter */
+//      i++;
+//    }
+//    vTaskDelay( 100 / portTICK_RATE_MS );
+//    i = 0;
+//    //LCD_ClearLine(Line);
+//    ptr -= length;
+//    x++;
+//    if(refcolumn < 16)
+//    {
+//      x = 0;
+//    }
+//    refcolumn = 319 - (x * 16);
+//  }
+}
+
+
+
+/*******************************************************************************
+* Function Name  : LCD_DrawLine
+* Description    : Displays a line.
+* Input          : - Xpos: specifies the X position.
+*                  - Ypos: specifies the Y position.
+*                  - Length: line length.
+*                  - Direction: line direction.
+*                    This parameter can be one of the following values: Vertical
+*                    or Horizontal.
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_DrawLine(int16_t X1, int16_t Y1,int16_t X2,int16_t Y2)
+{
+	int16_t CurrentX, CurrentY, Xinc, Yinc, 
+ 	Dx, Dy, TwoDx, TwoDy, 
+	TwoDxAccumulatedError, TwoDyAccumulatedError;
+
+	Dx = (X2-X1); 
+	Dy = (Y2-Y1); 
+	
+	TwoDx = Dx + Dx;
+	TwoDy = Dy + Dy;
+	
+	CurrentX = X1; 
+	CurrentY = Y1; 
+	
+	Xinc = 1; 
+	Yinc = 1; 
+	
+	if(Dx < 0)
+	{
+	  Xinc = -1;
+	  Dx = -Dx;
+	  TwoDx = -TwoDx; 
+	}
+	
+	if (Dy < 0) 
+	{
+	  Yinc = -1;
+	  Dy = -Dy; 
+	  TwoDy = -TwoDy; 
+  	}
+
+	LCD_SetPixel(X1,Y1,LCD_TextColor); 
+
+	if ((Dx != 0) || (Dy != 0)) {
+	  	if (Dy <= Dx) { 
+		    TwoDxAccumulatedError = 0;
+	  	  	do {
+		      	CurrentX += Xinc; 
+		      	TwoDxAccumulatedError += TwoDy; 
+		      	if(TwoDxAccumulatedError > Dx) {
+		        	CurrentY += Yinc;
+		        	TwoDxAccumulatedError -= TwoDx;
+		        }
+		       	LCD_SetPixel(CurrentX,CurrentY,LCD_TextColor);
+		    } while (CurrentX != X2); 
+		} else {
+			TwoDyAccumulatedError = 0; 
+	      	do {
+		        CurrentY += Yinc; 
+		        TwoDyAccumulatedError += TwoDx;
+		        if(TwoDyAccumulatedError>Dy) {
+		          CurrentX += Xinc;
+		          TwoDyAccumulatedError -= TwoDy;
+		        }
+	        	LCD_SetPixel(CurrentX,CurrentY,LCD_TextColor); 
+			}while (CurrentY != Y2);
+	    }
+  	}
+}
+
+/*******************************************************************************
+* Function Name  : LCD_DrawRect
+* Description    : Displays a rectangle.
+* Input          : - Xpos: specifies the X position.
+*                  - Ypos: specifies the Y position.
+*                  - Height: display rectangle height.
+*                  - Width: display rectangle width.
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_DrawRect(uint16_t x, uint16_t y, uint16_t w, uint16_t h)
+{
+	uint16_t j;
+	for (j = 0; j < h; j++) {
+		LCD_SetPixel(x, y + j,LCD_TextColor);
+		LCD_SetPixel(x + w - 1, y + j,LCD_TextColor);
+	}
+	for (j = 0; j < w; j++)	{
+		LCD_SetPixel(x + j, y,LCD_TextColor);
+		LCD_SetPixel(x + j, y + h - 1,LCD_TextColor);
+	} 
+}
+
+/*******************************************************************************
+* Function Name  : LCD_DrawCircle
+* Description    : Displays a circle.
+* Input          : - Xpos: specifies the X position.
+*                  - Ypos: specifies the Y position.
+*                  - Height: display rectangle height.
+*                  - Width: display rectangle width.
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_DrawCircle(uint16_t cx, uint16_t cy ,uint16_t radius)
+{
+	uint16_t x, y, xchange, ychange, radiusError;
+	x = radius;
+	y = 0;
+	xchange = 1 - 2 * radius;
+	ychange = 1;
+	radiusError = 0;
+	while(x >= y)
+	{
+	  LCD_SetPixel(cx+x, cy+y ,LCD_TextColor); 
+	  LCD_SetPixel(cx-x, cy+y ,LCD_TextColor); 
+	  LCD_SetPixel(cx-x, cy-y ,LCD_TextColor);
+	  LCD_SetPixel(cx+x, cy-y ,LCD_TextColor); 
+	  LCD_SetPixel(cx+y, cy+x ,LCD_TextColor); 
+	  LCD_SetPixel(cx-y, cy+x ,LCD_TextColor); 
+	  LCD_SetPixel(cx-y, cy-x ,LCD_TextColor); 
+	  LCD_SetPixel(cx+y, cy-x ,LCD_TextColor); 
+	  y++;
+	  radiusError += ychange;
+	  ychange += 2;
+	  if ( 2*radiusError + xchange > 0 )
+	    {
+	    x--;
+		radiusError += xchange;
+		xchange += 2;
+		}
+  }
+}
+
+/*******************************************************************************
+* Function Name  : LCD_DrawMonoPict
+* Description    : Displays a monocolor picture.
+* Input          : - Pict: pointer to the picture array.
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_DrawMonoBMP(const uint8_t *Pict, uint16_t Xpos_Init, uint16_t Ypos_Init, uint16_t Height, uint16_t Width)
+{
+  int32_t index = 0, counter = 0;
+  uint16_t x = Xpos_Init - Width, y = Ypos_Init - Height;
+
+  for (index = 0; index < Height; index++)
+  {
+    for (counter = 0; counter < Width; counter++)
+    {
+      if ((Pict[(index*Width+counter)/8] & (0x80 >> (counter%8))) == 0x00)
+      {
+        LCD_SetPixel(x + counter, y + index,LCD_BackColor);
+      }
+      else
+      {
+        LCD_SetPixel(x + counter, y + index,LCD_TextColor);
+      }
+    }
+  }
+}
+
+/*******************************************************************************
+* Function Name  : LCD_DrawBMP
+* Description    : Displays a bitmap picture loaded in the SPI Flash.
+* Input          : - BmpAddress: Bmp picture address in the SPI Flash.
+* Output         : None
+* Return         : None
+*******************************************************************************/
+void LCD_DrawBMP(uint32_t BmpAddress)
+{
+//  uint32_t i = 0;
+
+//  LCD_WriteReg(R1, 0xD0);
+//  LCD_WriteReg(R5, 0x04);
+//
+//  LCD_SetCursor(239, 0x013F);
+//
+//  SPI_FLASH_StartReadSequence(BmpAddress);
+//
+//  /* Disable SPI1  */
+//  SPI_Cmd(SPI1, DISABLE);
+//  /* SPI in 16-bit mode */
+//  SPI_DataSizeConfig(SPI1, SPI_DataSize_16b);
+//  /* Enable SPI1  */
+//  SPI_Cmd(SPI1, ENABLE);
+//
+//  for(i = 0; i < 76800; i++)
+//  {
+//    LCD_WriteRAM(__REV_HalfWord(SPI_FLASH_SendHalfWord(0xA5A5)));
+//  }
+//
+//  /* Deselect the FLASH: Chip Select high */
+//  SPI_FLASH_ChipSelect(1);
+//
+//  /* Disable SPI1  */
+//  SPI_Cmd(SPI1, DISABLE);
+//  /* SPI in 8-bit mode */
+//  SPI_DataSizeConfig(SPI1, SPI_DataSize_8b);
+//  /* Enable SPI1  */
+//  SPI_Cmd(SPI1, ENABLE);
+}
+
+/*-----------------------------------------------------------*/
+
+int fputs( const char* s, FILE *f )
+{
+	LCD_DisplayString( s );
+	return 1;
+}
+/*-----------------------------------------------------------*/
+
+
+
+
+
+uint8_t pdu_output_set_btn=0;
+uint8_t psu_select=0;
+
+
+void PDC_Redraw()
+{
+	uint16_t back_color,i;
+	char str[16];
+
+	//读取上次输出设定状态
+	//NumDataRead = 4;
+	//sEE_ReadBuffer(str, PDU_OUTPUT_ADDR, (uint16_t *)(&NumDataRead));
+	//while (NumDataRead > 0) {}  
+		
+	if ( (str[0] | (str[1]<<8)) == TC_CFG_FLAG ){
+		vPortEnterCritical();
+		pdu_state.output_set[0] = str[2] | (str[3]<<8);
+		vPortExitCritical();
+	} else {
+		str[0] = TC_CFG_FLAG;
+		str[1] = TC_CFG_FLAG>>8;
+		vPortEnterCritical();
+		str[2] = pdu_state.output_set[0];
+		str[3] = pdu_state.output_set[0]>>8;
+		vPortExitCritical();
+		//sEE_WriteBuffer(str, PDU_OUTPUT_ADDR, 4);
+	}
+
+	psu_state[0].vol_set = 280;
+	psu_state[1].vol_set = 280;
+
+	LCD_SetCursor(2,2);
+	
+	LCD_DisplayString("         AL-901 真 空 清 洁 仪         \r\n\r\n");
+	
+	LCD_DisplayString("            左     枪      右     枪   \r\n");
+	LCD_DisplayString("          设定值 实际值  设定值 实际值 \r\n");
+	LCD_DisplayString(" 电压(KV): 10.0   9.9     11.0   10.9  \r\n");
+	LCD_DisplayString(" 电流(mA): 0.10  0.11     0.20   0.21  \r\n");
+	LCD_DisplayString(" 前级真空泵: 开 启   真空度:  2.0e-3   \r\n");
+	LCD_DisplayString(" 分  子  泵: 开 启   频  率:     704   \r\n\r\n");
+	
+	LCD_DisplayString("  本次已经减薄时间: 00:00:31           \r\n");
+	LCD_DisplayString("  自动停机时间:     01:00:00           \r\n\r\n");
+	
+	LCD_DisplayString("  北京艾博智业离子技术有限责任公司    \r\n");
+	LCD_DisplayString("  客服电话: 010-12345678 13812345678   \r\n");
+
+	LCD_DrawRect(0,0,LCD_SCR_WIDTH,LCD_SCR_HIGH);
+/*
+	back_color = LCD_GetTextColor();
+	LCD_SetTextColor( Green );
+	LCD_SetCursor(12*20,2+24*12);
+	sprintf(str,"%02d.%1dV  ",psu_state[1].vol_set/10,psu_state[1].vol_set%10);
+	LCD_DisplayString(str);			
+	LCD_SetTextColor( back_color );
+	
+	LCD_SetCursor(12*37,2+24*12);
+	sprintf(str,"%02d.%1dV  ",psu_state[0].vol_set/10,psu_state[0].vol_set%10);
+	LCD_DisplayString(str);			
+
+	LCD_SetCursor(pixelBtn[12].x,pixelBtn[12].y);
+	LCD_DisplayString("全通");
+	LCD_DrawRect(pixelBtn[12].x-1,pixelBtn[12].y-1,12*4+2,24+4);
+
+	LCD_SetCursor(pixelBtn[13].x,pixelBtn[13].y);
+	LCD_DisplayString("全断");
+	LCD_DrawRect(pixelBtn[13].x-1,pixelBtn[13].y-1,12*4+2,24+4);
+
+	LCD_SetCursor(pixelBtn[14].x,pixelBtn[14].y   );LCD_DisplayString("一键");
+	LCD_SetCursor(pixelBtn[14].x,pixelBtn[14].y+24);LCD_DisplayString("设定");
+	LCD_DrawRect(pixelBtn[14].x-1,pixelBtn[14].y-1,12*4+2,24*2+4);
+
+	LCD_SetCursor(pixelBtn[15].x,pixelBtn[15].y);LCD_DisplayString("增加");
+	LCD_DrawRect(pixelBtn[15].x-1,pixelBtn[15].y-1,12*4+2,24+4);
+
+	LCD_SetCursor(pixelBtn[16].x,pixelBtn[16].y);LCD_DisplayString("减小");
+	LCD_DrawRect(pixelBtn[16].x-1,pixelBtn[16].y-1,12*4+2,24+4);
+	
+	LCD_SetCursor(pixelBtn[17].x,pixelBtn[17].y);LCD_DisplayString("设 定");
+	LCD_DrawRect(pixelBtn[17].x-1,pixelBtn[17].y-1,12*5+2,24+4);
+*/
+}
+
+
+void PDC_Refresh()
+{
+	char str[40];
+	uint16_t back_color;
+	uint8_t i,alarm=0;
+	
+	LCD_SetCursor(12*16,2+24*4);
+	sprintf(str,"%02d.%1dV  ",pdu_state.input_vol[0]/10,pdu_state.input_vol[0]%10);
+	LCD_DisplayString(str);
+	LCD_SetCursor(12*(16+17),LCD_CursorY);	
+	sprintf(str,"%02d.%1dV  ",pdu_state.input_vol[1]/10,pdu_state.input_vol[1]%10);
+	LCD_DisplayString(str);
+	
+	LCD_SetCursor(12*16,2+24*5);	
+	sprintf(str,"%02d.%1dA  ",pdu_state.input_cur[0]/10,pdu_state.input_cur[0]%10);
+	LCD_DisplayString(str);
+	LCD_SetCursor(12*(16+17),LCD_CursorY);
+	sprintf(str,"%02d.%1dA  ",pdu_state.input_cur[1]/10,pdu_state.input_cur[1]%10);
+	LCD_DisplayString(str);
+
+	for(i=0;i<12;i++){
+		LCD_SetCursor(12*11+36*i,2+24*7);
+		if ( (pdu_state.output_state[0] >> i) & 0x01 ){
+			LCD_DisplayString("通");
+		} else {
+			back_color = LCD_GetTextColor();
+			LCD_SetTextColor( Red );
+			LCD_DisplayString("断");
+			LCD_SetTextColor( back_color );
+		}
+	}
+
+	if ( !pdu_output_set_btn ){
+		for(i=0;i<12;i++){
+			LCD_SetCursor(12*11+36*i,2+24*8+12);
+			if ( (pdu_state.output_set[0] >> i) & 0x01 ){
+				LCD_DisplayString("通");
+			} else {
+				back_color = LCD_GetTextColor();
+				LCD_SetTextColor( Red );
+				LCD_DisplayString("断");
+				LCD_SetTextColor( back_color );
+			}
+		}
+	}
+			
+	LCD_SetCursor(12*13,2+24*12);	
+	sprintf(str,"%02d.%1dV  ",psu_state[0].voltage/10,psu_state[0].voltage%10);
+	LCD_DisplayString(str);
+	
+	LCD_SetCursor(12*30,2+24*12);
+	sprintf(str,"%02d.%1dV  ",psu_state[1].voltage/10,psu_state[1].voltage%10);
+	LCD_DisplayString(str);
+	
+	LCD_SetCursor(12*13,2+24*13);	
+	sprintf(str,"%02d.%1dA  ",psu_state[0].current/10,psu_state[0].current%10);
+	LCD_DisplayString(str);
+
+	LCD_SetCursor(12*30,2+24*13);	
+	sprintf(str,"%02d.%1dA  ",psu_state[1].current/10,psu_state[1].current%10);
+	LCD_DisplayString(str);
+	
+	if ( psu_state[0].ctrl_state == 0 ){
+		LCD_SetCursor(12*14, 2+24*14);
+		LCD_DisplayString("本    控");
+	} else if ( psu_state[0].ctrl_state == 1 ){
+		LCD_SetCursor(12*14, 2+24*14);
+		LCD_DisplayString("遥    控");
+	}
+
+	if ( psu_state[0].ctrl_state == 0 ){
+		LCD_SetCursor(12*(14+17), 2+24*14);
+		LCD_DisplayString("本    控");
+	} else if ( psu_state[0].ctrl_state == 1 ){
+		LCD_SetCursor(12*(14+17), 2+24*14);
+		LCD_DisplayString("遥    控");
+	}
+
+	if ( psu_state[0].over_cur == 0 ){
+		LCD_SetCursor(12*14, 2+24*15);
+		LCD_DisplayString("正    常");
+	} else if ( psu_state[0].over_cur == 1 ){
+		alarm ++;
+		LCD_SetCursor(12*14, 2+24*15);
+		LCD_DisplayString("过    流");
+	}
+
+	if ( psu_state[1].over_cur == 0 ){
+		LCD_SetCursor(12*(14+17), 2+24*15);
+		LCD_DisplayString("正    常");
+	} else if ( psu_state[1].over_cur == 1 ){
+		alarm ++;
+		LCD_SetCursor(12*(14+17), 2+24*15);
+		LCD_DisplayString("过    流");
+	}
+
+	if ( psu_state[0].over_vol == 0 ){
+		LCD_SetCursor(12*14, 2+24*16);
+		LCD_DisplayString("正    常");
+	} else if ( psu_state[0].over_vol == 1 ){
+		alarm ++;
+		LCD_SetCursor(12*14, 2+24*16);
+		LCD_DisplayString("过    压");
+	}
+
+	if ( psu_state[1].over_vol == 0 ){
+		LCD_SetCursor(12*(14+17), 2+24*16);
+		LCD_DisplayString("正    常");
+	} else if ( psu_state[1].over_vol == 1 ){
+		alarm ++;
+		LCD_SetCursor(12*(14+17), 2+24*16);
+		LCD_DisplayString("过    压");
+	}
+	
+}
+
+void update_psu_setup( uint16_t btn ,uint16_t pressure)
+{
+#if 0
+	char str[32];
+	uint16_t back_color;
+	
+	if ( btn == 19 ){//PSU1,输出电压
+		psu_select = 0;
+		if ( pressure == HID_DOWN || pressure == HID_FLEETING ){
+			LCD_SetCursor(pixelBtn[btn-1+1].x,pixelBtn[btn-1+1].y);
+			sprintf(str,"%02d.%1dV  ",psu_state[1].vol_set/10,psu_state[1].vol_set%10);
+			LCD_DisplayString(str);			
+			
+			back_color = LCD_GetTextColor();
+			LCD_SetTextColor( Green );
+			LCD_SetCursor(pixelBtn[btn-1].x,pixelBtn[btn-1].y);
+			sprintf(str,"%02d.%1dV  ",psu_state[0].vol_set/10,psu_state[0].vol_set%10);
+			LCD_DisplayString(str);			
+			LCD_SetTextColor( back_color );
+		}
+	} else if ( btn == 20 ){//PSU2,输出电压
+		psu_select = 1;
+		if ( pressure == HID_DOWN || pressure == HID_FLEETING ){
+			LCD_SetCursor(pixelBtn[btn-1-1].x,pixelBtn[btn-1-1].y);
+			sprintf(str,"%02d.%1dV  ",psu_state[0].vol_set/10,psu_state[0].vol_set%10);
+			LCD_DisplayString(str);			
+			
+			back_color = LCD_GetTextColor();
+			LCD_SetTextColor( Green );
+			LCD_SetCursor(pixelBtn[btn-1].x,pixelBtn[btn-1].y);
+			sprintf(str,"%02d.%1dV  ",psu_state[1].vol_set/10,psu_state[1].vol_set%10);
+			LCD_DisplayString(str);			
+			LCD_SetTextColor( back_color );
+		}
+	}
+#endif
+}
+
+void PDC_Windows()
+{
+#if 0
+	xHIDMessage xtc;
+	static portBASE_TYPE time=0,fleeting = 0;
+	static portBASE_TYPE btn;
+	uint16_t back_color,i;
+	char str[16];
+
+	if ( time == 0 ){
+		PDC_Redraw();
+	}
+	return;
+	if ( (time++ % 100) == 0 ){
+		PDC_Refresh();
+	}
+	if ( !time )
+		time++;
+	
+	if ( xQueueReceive( xMSGQueue, &xtc, 0 ) == pdPASS ){
+		//LCD_SetPixel(xtc.x,xtc.y);
+		
+		if ( xtc.type == HID_TC_CALIBRATE ){
+			TouchScreen_Calibrate(0);
+			time = 0;
+		}
+		
+		if ( xtc.pressure == HID_DOWN )
+			btn = Pixel_Button_Check( &xtc );
+		if ( btn > 0 && btn < 13 ){
+			if ( xtc.pressure == HID_DOWN ){
+				pdu_output_set_btn = 1;
+				back_color = LCD_GetBackColor();
+				LCD_SetBackColor( Green );
+				LCD_SetCursor(12*(11+(btn-1)*3),2+24*8+12);
+				if ( pdu_state.output_set[0] & (1<<(btn-1)) )
+					LCD_DisplayString("通");		
+				else 
+					LCD_DisplayString("断");	
+				LCD_SetBackColor( back_color );
+			} else if ( xtc.pressure == HID_UP ){
+				pdu_output_set_btn = 0;
+				pdu_state.output_set[0] ^= 1<<(btn-1);
+				LCD_SetCursor(12*(11+(btn-1)*3),2+24*8+12);
+				if ( pdu_state.output_set[0] & (1<<(btn-1)) )
+					LCD_DisplayString("通");		
+				else {
+					back_color = LCD_GetTextColor();
+					LCD_SetTextColor( Red );
+					LCD_DisplayString("断");	
+					LCD_SetTextColor( back_color );
+				}
+			}
+		} else if ( btn == 13 ) {//PDU输出全通
+			if ( xtc.pressure == HID_DOWN ){
+				LCD_SetCursor(pixelBtn[btn-1].x,pixelBtn[btn-1].y);
+				back_color = LCD_GetBackColor();
+				LCD_SetBackColor( Green );
+				LCD_DisplayString("全通");
+				LCD_SetBackColor( back_color );
+			} else if ( xtc.pressure == HID_UP ){
+				pdu_state.output_set[0] = 0x0FFF;
+				LCD_SetCursor(pixelBtn[btn-1].x,pixelBtn[btn-1].y);
+				LCD_DisplayString("全通");
+				for(i=0;i<12;i++){
+					LCD_SetCursor(12*(11+i*3),2+24*8+12);
+					LCD_DisplayString("通");		
+				}
+			}
+		} else if ( btn == 14 ) {//PDU输出全断
+			if ( xtc.pressure == HID_DOWN ){
+				LCD_SetCursor(pixelBtn[btn-1].x,pixelBtn[btn-1].y);
+				back_color = LCD_GetBackColor();
+				LCD_SetBackColor( Green );
+				LCD_DisplayString("全断");
+				LCD_SetBackColor( back_color );
+			} else if ( xtc.pressure == HID_UP ){
+				pdu_state.output_set[0] = 0x0000;
+				LCD_SetCursor(pixelBtn[btn-1].x,pixelBtn[btn-1].y);
+				LCD_DisplayString("全断");
+				back_color = LCD_GetTextColor();
+				LCD_SetTextColor( Red );
+				for(i=0;i<12;i++){
+					LCD_SetCursor(12*(11+i*3),2+24*8+12);
+					LCD_DisplayString("断");		
+				}
+				LCD_SetTextColor( back_color );
+			}
+		} else if ( btn == 15 ) {//设定PDU输出状态
+			if ( xtc.pressure == HID_DOWN ){
+				back_color = LCD_GetBackColor();
+				LCD_SetBackColor( Green );
+				LCD_SetCursor(pixelBtn[btn-1].x,pixelBtn[btn-1].y);
+				LCD_DisplayString("一键");
+				LCD_SetCursor(pixelBtn[btn-1].x,pixelBtn[btn-1].y+24);
+				LCD_DisplayString("设定");
+				LCD_SetBackColor( back_color );
+			} else if ( xtc.pressure == HID_UP ){
+				LCD_SetCursor(pixelBtn[btn-1].x,pixelBtn[btn-1].y);
+				LCD_DisplayString("一键");
+				LCD_SetCursor(pixelBtn[btn-1].x,pixelBtn[btn-1].y+24);
+				LCD_DisplayString("设定");
+				
+				str[0] = pdu_state.output_set[0];
+				str[1] = pdu_state.output_set[0]>>8;
+				//sEE_WriteBuffer(str, PDU_OUTPUT_ADDR+2, 2);
+				xCANSetPDU(pdu_state.output_set[0]);
+			}
+		} else if ( btn == 16 ){//增加
+			if ( xtc.pressure == HID_DOWN || ( (xtc.pressure == HID_FLEETING) && (fleeting++ > 3)) ){
+				psu_state[psu_select].vol_set++;
+
+				LCD_SetCursor(pixelBtn[btn-1+1].x,pixelBtn[btn-1+1].y);
+				LCD_DisplayString("减小");
+
+				LCD_SetCursor(pixelBtn[btn-1].x,pixelBtn[btn-1].y);
+				back_color = LCD_GetBackColor();
+				LCD_SetBackColor( Green );
+				LCD_DisplayString("增加");
+				LCD_SetBackColor( back_color );
+				update_psu_setup(19 + psu_select,xtc.pressure);
+			} else if ( xtc.pressure == HID_UP ){
+				fleeting = 1;
+				LCD_SetCursor(pixelBtn[btn-1].x,pixelBtn[btn-1].y);
+				LCD_DisplayString("增加");
+			}
+		} else if ( btn == 17 ){//减小
+			if ( xtc.pressure == HID_DOWN || ( (xtc.pressure == HID_FLEETING) && (fleeting++ > 3)) ){
+				psu_state[psu_select].vol_set--;
+
+				LCD_SetCursor(pixelBtn[btn-1-1].x,pixelBtn[btn-1-1].y);
+				LCD_DisplayString("增加");
+
+				LCD_SetCursor(pixelBtn[btn-1].x,pixelBtn[btn-1].y);
+				back_color = LCD_GetBackColor();
+				LCD_SetBackColor( Green );
+				LCD_DisplayString("减小");
+				LCD_SetBackColor( back_color );
+				update_psu_setup(19 + psu_select,xtc.pressure);
+			} else if ( xtc.pressure == HID_UP ){
+				fleeting = 1;
+				LCD_SetCursor(pixelBtn[btn-1].x,pixelBtn[btn-1].y);
+				LCD_DisplayString("减小");
+			}
+		} else if ( btn == 18 ){//设定PSU
+			if ( xtc.pressure == HID_DOWN ){
+				LCD_SetCursor(pixelBtn[btn-1].x,pixelBtn[btn-1].y);
+				back_color = LCD_GetBackColor();
+				LCD_SetBackColor( Green );
+				LCD_DisplayString("设 定");
+				LCD_SetBackColor( back_color );
+			} else if ( xtc.pressure == HID_UP ){
+				LCD_SetCursor(pixelBtn[btn-1].x,pixelBtn[btn-1].y);
+				LCD_DisplayString("设 定");
+				xCANSetPSU(psu_select,psu_state[psu_select].vol_set);
+			}
+		} else {
+			update_psu_setup( btn ,xtc.pressure);
+		}
+	}
+#endif
+}
+
+
+
+
+
+/*-----------------------------------------------------------*/
+void vLCDTask( void *pvParameters )
+{
+	xLCDMessage xMessage;
+	//xHIDMessage xtc;
+	char str[16];
+
+	/* Initialize the I2C EEPROM driver ----------------------------------------*/
+	sEE_Init();  
+
+	/* Initialise the LCD and display a startup message. */
+	prvConfigureLCD();
+
+	//LCD_DrawMonoPict( ( unsigned portLONG * ) pcBitmap );
+	/* Set the Back Color */
+	LCD_SetBackColor( Black );
+	/* Set the Text Color */
+	LCD_SetTextColor( 0x421F );
+
+	LCD_SetFont_EN(&EN_Font16x32);
+	LCD_SetFont_CH(&CH_Font32x32);
+
+	/*NumDataRead = 2;
+	sEE_ReadBuffer(str, TC_CFG_FLAG_ADDR, (uint16_t *)(&NumDataRead));
+	while (NumDataRead > 0) {}  
+		
+	//已经校准
+	if ( (str[0] | (str[1]<<8)) == TC_CFG_FLAG ){
+		NumDataRead = sizeof(TC_Matrix);
+		sEE_ReadBuffer((uint8_t*)&TC_Matrix, TC_CFG_FLAG_ADDR+2, (uint16_t *)(&NumDataRead));
+		while (NumDataRead > 0) {}  
+	} else */
+	{
+		TouchScreen_Calibrate(0);
+	}
+	
+	for( ;; )
+	{
+		/* Wait for a message to arrive that requires displaying. */
+		if ( xQueueReceive( xLCDQueue, &xMessage, 100 / portTICK_RATE_MS ) == pdPASS ){
+		
+			/* Display the message.  Print each message to a different position. */
+			//LCD_SetCursor(xMessage.CursorX,xMessage.CursorY);
+			//LCD_DisplayString( ( portCHAR const * ) xMessage.pcMessage );
+		} /*else if ( xQueueReceive( xMSGQueue, &xtc, 0 ) == pdPASS ){
+			LCD_SetPixel(xtc.x,xtc.y);		
+		}*/ else {
+			PDC_Windows();
+		}
+	}
+}
+
+/*-----------------------------------------------------------*/
+
+
+
+/******************* (C) COPYRIGHT 2007 STMicroelectronics *****END OF FILE****/

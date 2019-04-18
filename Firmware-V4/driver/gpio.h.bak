@@ -1,0 +1,101 @@
+#ifndef __DIO_H__
+#define __DIO_H__
+
+//-------------------------------------------------------------------------
+#define DI_CHANNELS		6
+#define DI_FILTER_SIZE	50
+
+#define DIO_CHANGING 	0x02
+
+#define DIO_IN		0
+#define DIO_OUT	1
+
+#define DIO_ALARM_NO 	0
+#define DIO_ALARM_LOW	1
+#define DIO_ALARM_HIGH	2
+
+//-------------------------------------------------------------------------
+enum PIN_NAME  
+{
+	KB_CLR=0,
+	DC_CODE0,	
+	BX_CODE1,	
+	BX_CODE0,	
+	BX_BH,	
+	AD_SEL0,
+	AD_SEL1,
+	AD_SEL2,
+	
+	DIO_SR,
+	BX2_CD6, 	
+	BX2_CD5,	
+	BX2_CD2,	
+	BX2_CD3,	
+	BX1_CD6,	
+	BX1_CD3,	
+	DC_CODE1,	
+	
+	KB_OE,	
+	BEEP,	
+	DC100V_KEY,	
+	RPROTECT_KEY,	
+	RELAY0,
+	RELAY1,
+	DC100V_LED,
+	AC_LED,
+
+	RELAY4,
+	RELAY5,
+	RELAY6,
+	RELAY7,
+	RELAY8,
+	RELAY9,
+	RELAY10,
+	RELAY11,
+	RELAY12
+
+};
+
+//-------------------------------------------------------------------------
+typedef struct
+{
+	enum PIN_NAME name;
+	uint8_t type;
+	uint16_t pin;
+	GPIO_TypeDef* reg;
+	GPIOMode_TypeDef mode;
+	uint8_t level;
+} DIO_PIN,*psDIO_PIN;
+
+typedef struct
+{
+	uint16_t filter;
+	uint32_t type	:2;
+	uint32_t level	:1;
+	uint32_t state	:2;
+	uint32_t alarm	:2;
+	uint32_t res	:9;
+	uint16_t count;
+} sBIT_FILTER,*psBIT_FILTER;
+
+typedef struct
+{
+	uint8_t new;
+	uint8_t num;
+	psBIT_FILTER filter;
+} sMONITOR,*psMONITOR;
+
+//-------------------------------------------------------------------------
+void DIO_init(void);
+void DIO_Write(uint8_t ch, uint8_t hi_low);
+uint8_t DIO_Read(uint8_t ch);
+void DIO_SetMode(uint8_t ch, GPIOMode_TypeDef type);
+
+
+void Relay_INIT(void);
+void Relay_Set(uint16_t relay);
+void Relay_SetBit(uint16_t relay_bit,uint8_t st);
+//-------------------------------------------------------------------------
+
+
+#endif
