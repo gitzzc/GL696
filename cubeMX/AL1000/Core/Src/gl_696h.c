@@ -1589,211 +1589,114 @@ void MBS_PresetMultipleRegisterCallback(uint16_t reg,uint16_t value)
 }
 
 #if 1
-int32_t hv_vol_task(psHV_STATUS* hvs)
+int32_t hv_vol_task(psHV_STATUS hvs)
 {
 	static int32_t  task=0;
 	static uint32_t err_count=0;
+	static uint32_t vol_tick=0,cur_tick=0;
 	uint16_t temp;
 	uint16_t step;
 
+	if ( hvs->usStatus.bit.Start == 0 )
+		task = 0;
+
 	switch(task){
-	case 0:
+	case 0:	//空闲状态，等待开始命令
+		hvs->usVolCtrl = 0;
+		hvs->usCurCtrl = 0;
 		if ( hvs->usStatus.bit.Start ) {
 			task = 1;
-			hvs->usVolCtrl = 0;
-			hvs->usCurCtrl = 0;
 			HAL_GPIO_WritePin (GPIOE,GPIO_PIN_4, GPIO_PIN_SET);
 			break;
 		} else {
-			hvs->usVolCtrl = 0;
-			hvs->usCurCtrl = 0;
 			HAL_GPIO_WritePin (GPIOE,GPIO_PIN_4, GPIO_PIN_RESET);
 		}
 		break;
-	case 1:
-	case 2:
-		if ( hvs->usStatus.bit.Start == 0 ) {
-			task = 0;
-			break;
-		}
+	case 1:	//开始升压，并判断电源状态
+	case 2:	//电源正常后，调节电压到设定值
+		if ( hvs->usStatus.bit.Start == 0 ) { task = 0; break; }
 
-		if ( hvs->usVolCtrl >= 1000 ) {
-			if ( hvs->usVolFb >= 900 ){
-				task = 2;
-			} else if ( err_count ++ > 10 ){
-				hvs->usStatus.bit.ERROR = 1;
-			}
-		} else
-			err_count = 0;
+		if ( GetTickElapse(vol_tick) >= sGL_config.usVolStepInterval ){
+			vol_tick = HAL_GetTick();
 
-		if ( hvs->usStatus.bit.ERROR ){
+			if ( hvs->usVolCtrl >= 1000 ) {
+				if ( hvs->usVolFb >= 900 ){
+					task = 2;
+				} else if ( err_count ++ > 500 ){
+					hvs->usStatus.bit.ERROR = 1;
+				}
+			} else
+				err_count = 0;
 
-		} else {
-			if ( task == 1 ){
-				if ( hvs->usVolCtrl <  1000 ){ 			hvs->usVolCtrl += sGL_config.usVolStep; }
-				if ( hvs->usVolCtrl >= 1000 ){ 			hvs->usVolCtrl  = 1000; }
+			if ( hvs->usStatus.bit.ERROR ){
+
 			} else {
-				if ( hvs->usVolCtrl <  hvs->usVolSet ){ hvs->usVolCtrl += sGL_config.usVolStep;
-				if ( hvs->usVolCtrl >= hvs->usVolSet ){ hvs->usVolCtrl  = hvs->usVolSet; task = 3; }
+				if ( task == 1 ){
+					if      ( hvs->usVolCtrl <  1000 )			{ hvs->usVolCtrl += sGL_config.usVolStep; }
+					else if ( hvs->usVolCtrl >= 1000 )			{ hvs->usVolCtrl  = 1000; }
+				} else {
+					if 		( hvs->usVolCtrl <  hvs->usVolSet )	{ hvs->usVolCtrl += sGL_config.usVolStep; }
+					else if ( hvs->usVolCtrl >= hvs->usVolSet )	{ hvs->usVolCtrl  = hvs->usVolSet; task = 3; }
+				}
 			}
 			PWM_ConfigChannel(&htim3,TIM_CHANNEL_1,hvs->usVolCtrl);
 		}
 		break;
-	case 3:
+	case 3:	//电压调整完成，设定电流初始控制值
 		hvs->usCurCtrl = sGL_config.usCurCtrlStart;
 		task = 4;
 		break;
 	case 4:
-		if ( (temp = abs ( hvs->usCurSet - hvs->usCurFb)) < (hvs->usCurSet * sGL_config.usCurErrorRate / 1000) ) {
-		} else {
-			if ( hvs->usCurFb < 300 ) { 		//300*0.1uA = 0.03mA
-				step 	 = sGL_config.usCurStep * 10;
+		if ( GetTickElapse(vol_tick) >= sGL_config.usVolStepInterval ){
+			vol_tick = HAL_GetTick();
+
+			if ( hvs->usVolCtrl < hvs->usVolSet ) {
+				hvs->usVolCtrl += sGL_config.usVolStep;
+				if ( hvs->usVolCtrl >= hvs->usVolSet )
+					hvs->usVolCtrl = hvs->usVolSet;
+			} else if ( hvs->usVolCtrl > hvs->usVolSet ) {
+				hvs->usVolCtrl -= sGL_config.usVolStep;
+				if ( hvs->usVolCtrl <= hvs->usVolSet )
+					hvs->usVolCtrl = hvs->usVolSet;
+			}
+			PWM_ConfigChannel(&htim3,TIM_CHANNEL_1,hvs->usVolCtrl);
+		}
+
+		if ( GetTickElapse(cur_tick) >= sGL_config.usCurStepInterval ){
+			cur_tick = HAL_GetTick();
+
+			if ( (temp = abs ( hvs->usCurSet - hvs->usCurFb)) < (hvs->usCurSet * sGL_config.usCurErrorRate / 1000) ) {
 			} else {
-				if ( 		temp > 1000 )	//1000*0.1uA = 0.1mA
-					step 	 = sGL_config.usCurStep * 5;
-				else if ( 	temp > 500 )	//1000*0.1uA = 0.05mA
-					step 	 = sGL_config.usCurStep * 2;
-				else if ( 	temp > 100 )	//1000*0.1uA = 0.01mA
-					step 	 = sGL_config.usCurStep * 1;
-				else
-					step 	 = sGL_config.usCurStep * 1;
-			}		break;
+				if ( hvs->usCurFb < 300 ) { 		//300*0.1uA = 0.03mA
+					step 	 = sGL_config.usCurStep * 10;
+				} else {
+					if ( 		temp > 1000 )	//1000*0.1uA = 0.1mA
+						step 	 = sGL_config.usCurStep * 5;
+					else if ( 	temp > 500 )	//1000*0.1uA = 0.05mA
+						step 	 = sGL_config.usCurStep * 2;
+					else if ( 	temp > 100 )	//1000*0.1uA = 0.01mA
+						step 	 = sGL_config.usCurStep * 1;
+					else
+						step 	 = sGL_config.usCurStep * 1;
+				}
+				if ( hvs->usCurFb < hvs->usCurSet ) {
+					hvs->usCurCtrl += step;
+					if ( hvs->usCurCtrl > 4096 )
+						hvs->usCurCtrl = 4096;
+				} else if ( hvs->usVolCtrl < hvs->usVolSet ) {
+					hvs->usCurCtrl -= step;
+					if ( hvs->usCurCtrl < 0 )
+						hvs->usCurCtrl = 0;
+				}
+			}
+			PWM_ConfigChannel(&htim3,TIM_CHANNEL_1,hvs->usCurCtrl);
+		}
+		break;
 	default:
 		break;
 	}
-		//--------------------------------------------------------------------------
-		hv_update_vol(hvs);		//更新电压电流状态寄存器
-		hvs_update_from_modbus(hvs);
-		//--------------------------------------------------------------------------
-
-		if ( hvs->pre_vol_set != hvs->vol_set ){
-			hvs->pre_vol_set = hvs->vol_set;
-			hvs->st &=~HV_SET_OK;
-		}
-
-		step = hvs->vol_step;
-		//高压输出在误差范围内
-		if ( hvs->vol_set == 0 /*&& hvs->vol_fb < 1000 */) {
-			hvs->st &= ~(HV_SET_TO | HV_INCTRL);	//清除故障状态标志
-			hvs->st &= ~(HV_SET_OK | HV_PWR);
-			PWM_DAC_SetmV( (ePIN_NAME)hvs->vol_dac_ch, (hvs->vol_ctl=0) );
-			hvs->cur_set = 0;
-			PWM_DAC_SetmV( hvs->cur_dac_ch, (hvs->cur_ctl=0) );
-			DIO_Write((ePIN_NAME)hvs->power_ch,DO_POWER_OFF);
-		} else if ( abs(hvs->vol_set - hvs->vol_fb) < hvs->vol_set * hvs->vol_err_rate / 1000 ) {
-			hvs->st &= ~(HV_SET_TO | HV_INCTRL);	//清除故障状态标志
-			hvs->st |=  HV_SET_OK;
-		} else /*if ( (hvs->st & HV_SET_OK) == 0 )*/ {
-			//开启高压电源
-			DIO_Write((ePIN_NAME)hvs->power_ch,DO_POWER_ON);
-			hvs->st |= HV_PWR;
-
-			step = hvs->vol_step;
-			if 		( labs( hvs->vol_fb - hvs->vol_set) > 1000 )
-				step *= 10;
-			else if ( labs( hvs->vol_fb - hvs->vol_set) > 100 || hvs->st & HV_SET_OK )
-				step *= 1;
-
-			if ( hvs->vol_fb > hvs->vol_set ) {
-				if ( hvs->vol_ctl > step )
-					hvs->vol_ctl -= step;
-				else
-					hvs->vol_ctl = 0;
-			}	else {
-				//if ( (hvs->vol_set - hvs->vol_fb > 500) && (hvs->cur_fb > 100) )	//放电
-				//{	//hvs->cur_ctl = hvs->cur_ctl*9/10;
-				//}	else
-					hvs->vol_ctl += step;
-			}
-
-			if ( hvs->vol_ctl - hvs->vol_set > 3000 ){	//误差调整保护
-				hvs->vol_ctl = hvs->vol_set+3000;
-				if ( hvs->cur_ctl )
-					hvs->cur_ctl --;
-			}
-			if ( hvs->vol_ctl > 3000 && hvs->vol_fb < 1000 )	//电源不受控保护
-				hvs->vol_ctl = 3000;
-			PWM_DAC_SetmV( hvs->vol_dac_ch, hvs->vol_ctl / hvs->ctl_scale );
-		}	//if ( abs(
-		hvs_update_to_modbus(hvs);
-	} else if ( to_status != TO_RUNING ) {	//冗余处理
-		start_timeout(hvs->vol_check_to, hvs->vol_step_interval);
-	}	//if ( (to_status
 
   return 0;
 }
-
-int32_t hv_cur_task(HVS* hvs)
-{
-	uint16_t step;
-	uint32_t temp;
-	int32_t to_status;
-
-//	if ( (hvs->st & HV_ENABLE) == 0)
-//		return 0;
-
-  	if ( (to_status = get_timeout(hvs->cur_check_to)) == TO_TIMEOUT ){
-		start_timeout(hvs->cur_check_to, hvs->cur_step_interval);
-
-		step = hvs->cur_step;
-
-		if ( hvs->cur_set == 0 ) {
-			PWM_DAC_SetmV( hvs->cur_dac_ch, (hvs->cur_ctl=0) );
-			hvs_update_to_modbus(hvs);
-			return 0;
-		} else if ( hvs->cur_ctl == 0 ){	//第一次开始调节
-			hvs->cur_ctl = hvs->cur_ctl_start;			//初始值
-		}
-
-//		if ( (hvs->vol_set - hvs->vol_fb > 500) && (hvs->cur_fb > 100) ) {	//放电
-//			if ( hvs->cur_ctl > hvs->cur_step*50 ){
-//				hvs->cur_ctl -= hvs->cur_step*50;
-//			} else
-//				hvs->cur_ctl = 0;
-//			PWM_DAC_SetmV( hvs->cur_dac_ch, hvs->cur_ctl );
-//			return 0;
-//		}
-
-		if ( (temp = abs ( hvs->cur_set - hvs->cur_fb )) < (hvs->cur_set * hvs->cur_err_rate / 1000) ) {
-			hvs->st |= HV_CUR_SET_OK;
-		} else {
-			hvs->st &= ~HV_CUR_SET_OK;
-
-			if ( hvs->cur_fb < 300 ) { 		//300*0.1uA = 0.03mA
-				step 	 = hvs->cur_step*10;
-			} else {
-				if ( 		temp > 1000 )	//1000*0.1uA = 0.1mA
-					step 	 = hvs->cur_step * 5;
-				else if ( 	temp > 500 )	//1000*0.1uA = 0.05mA
-					step 	 = hvs->cur_step * 2;
-				else if ( 	temp > 100 )	//1000*0.1uA = 0.01mA
-					step 	 = hvs->cur_step * 1;
-				else
-					step 	 = hvs->cur_step * 1;
-			}
-
-			if ( hvs->cur_fb > hvs->cur_set ) {
-				if ( hvs->cur_ctl > step ){
-					hvs->cur_ctl -= step;
-				} else
-					hvs->cur_ctl = 0;
-			}	else {
-				hvs->cur_ctl += step;//mV
-				if ( hvs->cur_ctl > CUR_DAC_FULL )
-					hvs->cur_ctl = CUR_DAC_FULL;
-			}
-			PWM_DAC_SetmV(hvs->cur_dac_ch, hvs->cur_ctl );
-		    start_timeout(hvs->cur_check_to, hvs->cur_step_interval);
-		}	//if ( abs ...
-
-		hvs_update_to_modbus(hvs);
-	} else if ( to_status != TO_RUNING ) {	//冗余处理
-		start_timeout(hvs->cur_check_to, hvs->cur_step_interval);
-	}
-
-	return 0;
-}
-
-
 
 #endif

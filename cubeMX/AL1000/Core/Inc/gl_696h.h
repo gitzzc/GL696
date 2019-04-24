@@ -58,6 +58,10 @@ typedef struct _GL_CONFIG_
 	uint16_t 	usVolCurDac[MAX_HV_NO];
 	uint16_t 	usPowerIO[MAX_HV_NO];
 
+	uint16_t	usMotorOnTime;
+	uint16_t	usMotorOffTime;
+	uint16_t	BaffleOnTime;
+	uint16_t	BaffleOffTime;
 } __attribute__ ((aligned(4))) sGL_CONFIG,*psGL_CONFIG;
 
 typedef struct _HV_STATUS_
