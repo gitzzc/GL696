@@ -142,6 +142,32 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
 
 /* USER CODE BEGIN 1 */
 
+void ADC_Get(uint32_t channel,uint16_t* buf,uint32_t size)
+{
+	ADC_ChannelConfTypeDef sAdcConfig;
+	uint16_t ulADCxValue=0;
+	uint16_t i;
+
+	/*##-2- Configure ADC regular channel ######################################*/
+	sAdcConfig.Channel      = channel;
+	sAdcConfig.Rank         = ADC_REGULAR_RANK_1;
+	sAdcConfig.SamplingTime = ADC_SAMPLETIME_55CYCLES_5;
+
+	if (HAL_ADC_ConfigChannel(&hadc1, &sAdcConfig) != HAL_OK) 	Error_Handler();
+	if (HAL_ADCEx_Calibration_Start(&hadc1) != HAL_OK)			Error_Handler();
+
+	for(i=0;i<size;i++){
+		if (HAL_ADC_Start(&hadc1) != HAL_OK) Error_Handler();
+		if (HAL_ADC_PollForConversion(&hadc1, 10) != HAL_OK)
+			Error_Handler();
+		else
+			buf[i] = HAL_ADC_GetValue(&hadc1);
+	}
+	HAL_ADC_Stop(&hadc1);
+
+	return ;
+}
+
 /* USER CODE END 1 */
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

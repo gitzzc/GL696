@@ -39,6 +39,7 @@ extern ADC_HandleTypeDef hadc1;
 void MX_ADC1_Init(void);
 
 /* USER CODE BEGIN Prototypes */
+void ADC_Get(uint32_t channel,uint16_t* buf,uint32_t size);
 
 /* USER CODE END Prototypes */
 

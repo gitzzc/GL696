@@ -96,7 +96,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_LWIP_Init();
+//  MX_LWIP_Init();
 //  MX_IWDG_Init();
   MX_TIM5_Init();
   MX_TIM3_Init();
@@ -108,52 +108,21 @@ int main(void)
   MX_UART5_Init();
   MX_CRC_Init();
   /* USER CODE BEGIN 2 */
-  SerialPutBuf(&huart1, (uint8_t*)"GL696 Power Up...\r\n", sizeof("GL696 Power Up...\r\n")-1);
+  AL1000_Init();
 
-  ConfigRead((uint32_t*)&sGL_config,sizeof(sGL_CONFIG)/4,(uint32_t*)&sGL_default_config);
-
-  SerialBufInit(&huart1);
-  MB_Init(&mbs,sGL_config.usAddrss);
-
-  PWM_ConfigChannel(&htim3,TIM_CHANNEL_1,2408);
-  PWM_ConfigChannel(&htim3,TIM_CHANNEL_2,2408);
-  PWM_ConfigChannel(&htim3,TIM_CHANNEL_3,2408);
-  PWM_ConfigChannel(&htim3,TIM_CHANNEL_4,2408);
-  PWM_ConfigChannel(&htim5,TIM_CHANNEL_1,2408);
-  PWM_ConfigChannel(&htim5,TIM_CHANNEL_4,2408);
-  PWM_ConfigChannel(&htim4,TIM_CHANNEL_1,2408);
-  PWM_ConfigChannel(&htim4,TIM_CHANNEL_2,2408);
-  PWM_ConfigChannel(&htim4,TIM_CHANNEL_3,2408);
-  PWM_ConfigChannel(&htim4,TIM_CHANNEL_4,2408);
-
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5
-                          |GPIO_PIN_0|GPIO_PIN_1, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3|GPIO_PIN_4, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-
-  PWM_ConfigChannel(&htim3,TIM_CHANNEL_1,0);
-  PWM_ConfigChannel(&htim3,TIM_CHANNEL_2,0);
-  PWM_ConfigChannel(&htim3,TIM_CHANNEL_3,0);
-  PWM_ConfigChannel(&htim3,TIM_CHANNEL_4,0);
-  PWM_ConfigChannel(&htim5,TIM_CHANNEL_1,0);
-  PWM_ConfigChannel(&htim5,TIM_CHANNEL_4,0);
-  PWM_ConfigChannel(&htim4,TIM_CHANNEL_1,0);
-  PWM_ConfigChannel(&htim4,TIM_CHANNEL_2,0);
-  PWM_ConfigChannel(&htim4,TIM_CHANNEL_3,0);
-  PWM_ConfigChannel(&htim4,TIM_CHANNEL_4,0);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  MX_LWIP_Process();
-	  //HAL_IWDG_Refresh(&hiwdg);
+	//HAL_IWDG_Refresh(&hiwdg);
 
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  MB_SerialTask(&huart1);
+	MX_LWIP_Process();
+	AL1000_Task();
   }
   /* USER CODE END 3 */
 }

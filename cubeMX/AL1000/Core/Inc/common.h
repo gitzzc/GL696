@@ -1,6 +1,7 @@
 #ifndef __COMMON_H__
 #define __COMMON_H__
 
+#define ContainOf(x) 			(sizeof(x)/sizeof(x[0]))
 
 //-----------------QUEUE-----------------------------------------------
 typedef struct 
@@ -19,5 +20,9 @@ uint8_t asc2hex(int8_t asc);
 uint8_t str2uchar(int8_t *str);
 uint16_t str2uint(int8_t *str);
 uint32_t str2ulong (int8_t *str);
+
+uint32_t GetTickElapse(uint32_t uiPreTick);
+void exchange_sort16(uint16_t* pData,uint16_t Count);
+uint16_t get_average16(uint16_t* dat, uint16_t len);
 
 #endif

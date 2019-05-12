@@ -6,14 +6,6 @@
 #define HW_VER		0x0200
 #define MAX_HV_NO 	4
 
-typedef struct 
-{
-  uint16_t * queue;
-  unsigned char size;
-  unsigned char front;
-  unsigned char rear;
-} QUEUE,*pQUEUE;
-
 typedef struct _GL_CONFIG_
 {
 	//------0-7----------
@@ -54,10 +46,6 @@ typedef struct _GL_CONFIG_
 	uint16_t 	usCurStepTimeout;	//电流步进输出超时,mS
 	uint16_t 	usCurCtrlStart;		//电流控制起始值
   
-	uint16_t 	usVolCurAdc[MAX_HV_NO];
-	uint16_t 	usVolCurDac[MAX_HV_NO];
-	uint16_t 	usPowerIO[MAX_HV_NO];
-
 	uint16_t	usMotorOnTime;
 	uint16_t	usMotorOffTime;
 	uint16_t	BaffleOnTime;
@@ -98,11 +86,12 @@ typedef struct _MPUMP_
 
 typedef struct _sGL_STATUS_
 {
+	uint16_t 	usRelay[2];
+	uint16_t	usADC[16];
+	uint16_t	usDAC[16];
+
 	sHV_STATUS	shv[MAX_HV_NO];
 	sMPUMP 		smpump;
-	uint16_t 	usRelay[2];
-	uint16_t	usDAC[16];
-	uint16_t	usADC[16];
 	float 		vmeter;
 } __attribute__ ((aligned(4))) sGL_STATUS,*psGL_STATUS;
 
@@ -111,7 +100,8 @@ extern sGL_STATUS sGL_status;
 extern sGL_CONFIG sGL_config;
 extern sGL_CONFIG const sGL_default_config;
 
-void vGL696H_Task( void *pvParameters );
+void AL1000_Init(void);
+void AL1000_Task(void);
 
 
 #endif

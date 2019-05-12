@@ -7,6 +7,11 @@
 #include "gl_696h.h"
 #include "adc.h"
 #include "gpio.h"
+#include "usart.h"
+
+#include "common.h"
+#include "serial.h"
+#include "config.h"
 //#include "pwm_dac.h"
 //#include "serials.h"
 //#include "mb_reg_map.h"
@@ -15,7 +20,7 @@
 sGL_STATUS sGL_status;
 sGL_CONFIG sGL_config;
 
-sGL_CONFIG const sGL_default_config =	\
+sGL_CONFIG const sGL_default_config =
 {
 	//------0-7----------
 	0,				//udYear;
@@ -1524,6 +1529,8 @@ void vGL696H_Test_Task( void *pvParameters )
 #endif
 
 
+
+
 void RelaySet(uint16_t reg, uint16_t value)
 {
 	uint32_t i;
@@ -1588,8 +1595,130 @@ void MBS_PresetMultipleRegisterCallback(uint16_t reg,uint16_t value)
 	}
 }
 
+void PWM_Task()
+{
+	PWM_ConfigChannel(&htim3,TIM_CHANNEL_1,sGL_status.usDAC[0]);
+	PWM_ConfigChannel(&htim3,TIM_CHANNEL_2,sGL_status.usDAC[1]);
+	PWM_ConfigChannel(&htim3,TIM_CHANNEL_3,sGL_status.usDAC[2]);
+	PWM_ConfigChannel(&htim3,TIM_CHANNEL_4,sGL_status.usDAC[3]);
+	PWM_ConfigChannel(&htim5,TIM_CHANNEL_1,sGL_status.usDAC[4]);
+	PWM_ConfigChannel(&htim5,TIM_CHANNEL_4,sGL_status.usDAC[5]);
+	PWM_ConfigChannel(&htim4,TIM_CHANNEL_1,sGL_status.usDAC[6]);
+	PWM_ConfigChannel(&htim4,TIM_CHANNEL_2,sGL_status.usDAC[7]);
+	PWM_ConfigChannel(&htim4,TIM_CHANNEL_3,sGL_status.usDAC[8]);
+	PWM_ConfigChannel(&htim4,TIM_CHANNEL_4,sGL_status.usDAC[9]);
+}
+
+#define ADC_CHANNELS 	6
+#define ADC_BUF_SIZE	32
+
+uint32_t ADC_Channel[ADC_CHANNELS] = {
+	ADC_CHANNEL_15,	ADC_CHANNEL_14,
+	ADC_CHANNEL_5,	ADC_CHANNEL_4,
+	ADC_CHANNEL_13,	ADC_CHANNEL_12
+};
+
+uint16_t ADC_Buf[ADC_CHANNELS][ADC_BUF_SIZE];
+
+void ADC_Sample(void)
+{
+	uint16_t buf[32];
+	uint32_t i;
+	static uint32_t index=0;
+
+	for(i=0;i<ADC_CHANNELS;i++) {
+		ADC_Get(ADC_Channel[i],buf,ContainOf(buf));
+		ADC_Buf[i][index] = get_average16(buf,ContainOf(buf));
+	}
+	if ( index ++ >= ADC_BUF_SIZE ) index = 0;
+}
+
+uint16_t ADC_GetAverage(uint32_t ch)
+{
+	uint16_t buf[ADC_BUF_SIZE];
+
+	memcpy(buf,ADC_Buf[ch],sizeof(buf));
+	exchange_sort16(buf,ContainOf(buf));
+	return get_average16(buf,ContainOf(buf));
+}
+
+void ADC_Task(void)
+{
+	uint32_t i;
+
+	ADC_Sample();
+	for(i=0;i<ADC_CHANNELS;i++){
+		sGL_status.usADC[i] = ADC_GetAverage(i);
+	}
+}
+
+//-----------------------------------------------------------------------------------
+float vmeter_get_adc(void)
+{
+	uint16_t adc[32];
+	uint32_t vol;
+	float vmeter;
+
+	vol = sGL_status.usADC[4];
+
+	vol = vol*2500*4/4095*1137/1000;
+
+	vmeter = pow(10,1.667*vol/1000-9.333);
+
+	if 		( 5.0e-9 > vmeter 	) vmeter = 5.0e-9;
+	else if ( vmeter > 1000 	) vmeter = 1000;
+
+	return vmeter;
+}
+
+//读取真空计数据，转换成32bit浮点数，存储在MODBUS寄存器中，
+//其中，usRegInputBuf[MB_VMETER0]为bit31-16,usRegInputBuf[MB_VMETER1]为bit15-0
+#define VMETER_UART	huart1
+void VmeterTask()
+{
+	static uint8_t buf[32];
+	static int32_t rx_len=0;
+	static uint32_t vmeter_tick=0;
+	float vmeter;
+	uint32_t i;
+	uint8_t rx;
 #if 1
-int32_t hv_vol_task(psHV_STATUS hvs)
+	if ( SerialGetChar(VMETER_UART,&rx) == pdTRUE ){
+		vmeter_tick = HAL_GetTick();
+		buf[rx_len] = rx;
+		if ( rx_len ++ >= sizeof(buf) )
+			rx_len = 0;
+
+		for ( i=0; rx_len-i>=9; i++ ){
+			if ( buf[i] == 0x2A ){
+				rx_len = 0;
+				buf[i+9] = '\0';
+
+				if ( buf[i+2+4] != '-' )//只要电离规有数据，则以些为准
+					i += 4;
+				else if ( buf[i+2] == '?' || buf[i+2] == '-' )
+					break;
+
+				vmeter = buf[i+1] - '0';
+				vmeter += (float)(buf[i+2] - '0')/10;
+				if ( buf[i+3] == '+' )
+					vmeter *= pow(10,(buf[i+4]-'0'));
+				else if ( buf[i+3] == '-' )
+					vmeter *= pow(10,-(buf[i+4]-'0'));
+
+				sGL_status.vmeter = vmeter;
+				return;		//有串口数据返回，不处理模拟规
+			}
+		}
+	} else if ( GetTickElapse(vmeter_tick) >= 100 || rx_len + 9 > sizeof(buf) ){
+		rx_len = 0;
+	}
+#endif
+	sGL_status.vmeter = vmeter_get_adc();
+}
+
+#if 1
+int32_t HV_Logic(psHV_STATUS hvs)
 {
 	static int32_t  task=0;
 	static uint32_t err_count=0;
@@ -1606,10 +1735,12 @@ int32_t hv_vol_task(psHV_STATUS hvs)
 		hvs->usCurCtrl = 0;
 		if ( hvs->usStatus.bit.Start ) {
 			task = 1;
-			HAL_GPIO_WritePin (GPIOE,GPIO_PIN_4, GPIO_PIN_SET);
+			hvs->usStatus.bit.POWERON = 1;
+//			HAL_GPIO_WritePin (GPIOE,GPIO_PIN_4, GPIO_PIN_SET);
 			break;
 		} else {
-			HAL_GPIO_WritePin (GPIOE,GPIO_PIN_4, GPIO_PIN_RESET);
+			hvs->usStatus.bit.POWERON = 1;
+//			HAL_GPIO_WritePin (GPIOE,GPIO_PIN_4, GPIO_PIN_RESET);
 		}
 		break;
 	case 1:	//开始升压，并判断电源状态
@@ -1639,7 +1770,7 @@ int32_t hv_vol_task(psHV_STATUS hvs)
 					else if ( hvs->usVolCtrl >= hvs->usVolSet )	{ hvs->usVolCtrl  = hvs->usVolSet; task = 3; }
 				}
 			}
-			PWM_ConfigChannel(&htim3,TIM_CHANNEL_1,hvs->usVolCtrl);
+//			HV_SetDac(hvs->usVolDac,hvs->usVolCtrl);
 		}
 		break;
 	case 3:	//电压调整完成，设定电流初始控制值
@@ -1659,7 +1790,7 @@ int32_t hv_vol_task(psHV_STATUS hvs)
 				if ( hvs->usVolCtrl <= hvs->usVolSet )
 					hvs->usVolCtrl = hvs->usVolSet;
 			}
-			PWM_ConfigChannel(&htim3,TIM_CHANNEL_1,hvs->usVolCtrl);
+//			HV_SetDac(hvs->usVolDac,hvs->usVolCtrl);
 		}
 
 		if ( GetTickElapse(cur_tick) >= sGL_config.usCurStepInterval ){
@@ -1689,7 +1820,7 @@ int32_t hv_vol_task(psHV_STATUS hvs)
 						hvs->usCurCtrl = 0;
 				}
 			}
-			PWM_ConfigChannel(&htim3,TIM_CHANNEL_1,hvs->usCurCtrl);
+//			HV_SetDac(hvs->usCurDac,hvs->usCurCtrl);
 		}
 		break;
 	default:
@@ -1697,6 +1828,70 @@ int32_t hv_vol_task(psHV_STATUS hvs)
 	}
 
   return 0;
+}
+
+void HV_Task()
+{
+	uint32_t i;
+
+	for(i=0;i<MAX_HV_NO;i++){
+		sGL_status.shv[i].usVolFb 	= sGL_status.usADC[2*i  ];
+		sGL_status.shv[i].usCurFb 	= sGL_status.usADC[2*i+1];
+
+		HV_Logic(&sGL_status.shv[i]);
+
+		sGL_status.usDAC[2*i  ] 	= sGL_status.shv[i].usVolCtrl;
+		sGL_status.usDAC[2*i+1] 	= sGL_status.shv[i].usCurCtrl;
+
+		sGL_status.usRelay[0] 	   &= ~(1<<i);
+		sGL_status.usRelay[0] 	   |= (sGL_status.shv[i].usStatus.bit.POWERON)<<i;
+	}
+}
+
+void AL1000_Init(void)
+{
+	SerialPutBuf(&huart1, (uint8_t*)"GL696 Power Up...\r\n", sizeof("GL696 Power Up...\r\n")-1);
+
+	ConfigRead((uint32_t*)&sGL_config,sizeof(sGL_CONFIG)/4,(uint32_t*)&sGL_default_config);
+
+	SerialBufInit(&huart1);
+	MB_Init(&mbs,sGL_config.usAddrss);
+
+	PWM_ConfigChannel(&htim3,TIM_CHANNEL_1,2048);
+	PWM_ConfigChannel(&htim3,TIM_CHANNEL_2,2048);
+	PWM_ConfigChannel(&htim3,TIM_CHANNEL_3,2048);
+	PWM_ConfigChannel(&htim3,TIM_CHANNEL_4,2048);
+	PWM_ConfigChannel(&htim5,TIM_CHANNEL_1,2048);
+	PWM_ConfigChannel(&htim5,TIM_CHANNEL_4,2048);
+	PWM_ConfigChannel(&htim4,TIM_CHANNEL_1,2048);
+	PWM_ConfigChannel(&htim4,TIM_CHANNEL_2,2048);
+	PWM_ConfigChannel(&htim4,TIM_CHANNEL_3,2048);
+	PWM_ConfigChannel(&htim4,TIM_CHANNEL_4,2048);
+
+	HAL_GPIO_WritePin(GPIOE, GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5
+						  |GPIO_PIN_0|GPIO_PIN_1, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3|GPIO_PIN_4, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+#if 0
+	PWM_ConfigChannel(&htim3,TIM_CHANNEL_1,0);
+	PWM_ConfigChannel(&htim3,TIM_CHANNEL_2,0);
+	PWM_ConfigChannel(&htim3,TIM_CHANNEL_3,0);
+	PWM_ConfigChannel(&htim3,TIM_CHANNEL_4,0);
+	PWM_ConfigChannel(&htim5,TIM_CHANNEL_1,0);
+	PWM_ConfigChannel(&htim5,TIM_CHANNEL_4,0);
+	PWM_ConfigChannel(&htim4,TIM_CHANNEL_1,0);
+	PWM_ConfigChannel(&htim4,TIM_CHANNEL_2,0);
+	PWM_ConfigChannel(&htim4,TIM_CHANNEL_3,0);
+	PWM_ConfigChannel(&htim4,TIM_CHANNEL_4,0);
+#endif
+}
+
+void AL1000_Task(void)
+{
+	ADC_Task();
+	HV_Task();
+	PWM_Task();
+	MB_SerialTask(&huart1);
 }
 
 #endif
